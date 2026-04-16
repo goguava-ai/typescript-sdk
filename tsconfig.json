@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "strictNullChecks": true,
+    "strictPropertyInitialization": true,
+    "module": "commonjs",
+    "target": "es2022",
+    "sourceMap": true,
+    "esModuleInterop": true,
+    "declaration": true,
+    "rewriteRelativeImportExtensions": true,
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "outDir": "dist",
+    "paths": {
+      "@guava-ai/guava-sdk": ["./src/index.ts"],
+      "@guava-ai/guava-sdk/example-data": ["./src/example-data.ts"],
+      "@guava-ai/guava-sdk/helpers/openai": ["./src/helpers/openai.ts"]
+    }
+  },
+  "include": [
+    "src/",
+    "examples/",
+    "bin/"
+  ]
+}

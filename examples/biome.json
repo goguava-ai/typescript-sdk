@@ -1,0 +1,5 @@
+{
+  "root": false,
+  "extends": "//",
+  "plugins": ["../custom-rules/examples.grit"]
+}

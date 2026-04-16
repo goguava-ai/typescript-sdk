@@ -1,0 +1,59 @@
+{
+  "name": "@guava-ai/guava-sdk",
+  "description": "The official TypeScript SDK for building Guava voice agents.",
+  "homepage": "https://docs.goguava.ai/typescript-sdk/",
+  "version": "0.9.0",
+  "type": "commonjs",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./helpers/openai": {
+      "types": "./dist/src/helpers/openai.d.ts",
+      "default": "./dist/src/helpers/openai.js"
+    },
+    "./example-data": {
+      "types": "./dist/src/example-data.d.ts",
+      "default": "./dist/src/example-data.js"
+    }
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.9",
+    "@types/node": "^25.0.7",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
+  "bin": {
+    "guava-example": "dist/bin/example-runner.js"
+  },
+  "dependencies": {
+    "openai": "^6.16.0",
+    "ws": "^8.19.0",
+    "zod": "^4.3.5"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "biome lint --max-diagnostics=none",
+    "lint-fix": "biome lint --max-diagnostics=none --write",
+    "check-format": "biome format ./src ./examples",
+    "format": "biome format --write ./src ./examples",
+    "check": "npm run typecheck && npm audit && npm run lint && npm run check-format",
+    "clean": "rm -rf ./dist",
+    "build": "tsx scripts/update-version.ts && tsc && chmod +x ./dist/bin/example-runner.js",
+    "prepare": "npm run clean && npm run build",
+    "release": "npm publish --ignore-scripts=false"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "/src",
+    "/dist",
+    "/examples",
+    "/bin"
+  ]
+}

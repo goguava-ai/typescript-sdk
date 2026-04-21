@@ -13,8 +13,10 @@ import { getBaseUrl, fetchOrThrow } from "./utils.ts";
 import { telemetryClient } from "./telemetry.ts";
 import type { CallController } from "./call-controller.ts";
 export { CallController, type TaskObjective } from "./call-controller.ts";
-export { Say, Field } from "./action_item.ts";
-export { Logger, getConsoleLogger } from "./logging.ts";
+export { Say, Field } from "./action-item.ts";
+export { Logger, getConsoleLogger, getDefaultLogger } from "./logging.ts";
+export { Agent, CallInfo } from "./agent.ts";
+export { Call } from "./call.ts";
 
 const SDK_NAME = "typescript-sdk";
 
@@ -81,7 +83,7 @@ export class Client {
     }
   }
 
-  private getWebsocketBase() {
+  getWebsocketBase() {
     if (http_start.test(this._baseUrl)) {
       return `ws://${this._baseUrl.substring("ws://".length)}`;
     } else if (https_start.test(this._baseUrl)) {
@@ -91,11 +93,11 @@ export class Client {
     }
   }
 
-  private getHttpBase() {
+  getHttpBase() {
     return this._baseUrl;
   }
 
-  private headers() {
+  headers() {
     return {
       Authorization: `Bearer ${this._apiKey}`,
       "x-guava-platform": os.platform(),

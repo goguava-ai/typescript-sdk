@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 import * as schedulingOutbound from "../examples/scheduling-outbound";
 import * as propertyInsurance from "../examples/property-insurance";
-import * as creditCardActivation from "../examples/credit-card-activation";
-import * as thaiPalace from "../examples/thai-palace";
+import * as restaurantWaitlist from "../examples/restaurant-waitlist";
+import * as helpDesk from "../examples/help-desk";
 
 const EXAMPLES = {
   "scheduling-outbound": schedulingOutbound,
   "property-insurance": propertyInsurance,
-  "credit-card-activation": creditCardActivation,
-  "thai-palace": thaiPalace,
+  "restaurant-waitlist": restaurantWaitlist,
+  "help-desk": helpDesk,
 };
 
 const exampleName = process.argv[2];

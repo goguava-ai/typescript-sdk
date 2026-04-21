@@ -2,38 +2,22 @@ import * as guava from "@guava-ai/guava-sdk";
 import { DocumentQA } from "@guava-ai/guava-sdk/helpers/openai";
 import { PROPERTY_INSURANCE_POLICY } from "@guava-ai/guava-sdk/example-data";
 
-class InsuranceCallController extends guava.CallController {
-  private documentQA: DocumentQA;
-  constructor() {
-    super();
+const agent = new guava.Agent({
+  organization: "Harper Valley Property Insurance",
+  purpose: "Answer questions regarding property insurance policy until there are no more questions",
+});
 
-    this.documentQA = new DocumentQA("harper-valley-property-insurance", PROPERTY_INSURANCE_POLICY);
+// This is a built-in knowledge base helper that we will use for this example.
+// You can use any RAG system you prefer.
+const documentQA = new DocumentQA("harper-valley-property-insurance", PROPERTY_INSURANCE_POLICY);
 
-    this.setPersona({
-      organizationName: "Harper Valley Property Insurance",
-    });
-    this.setTask({
-      objective:
-        "You are making an outbound call to a potential customer. Your task is to answer questions regarding property insurance policy until there are no more questions.",
-    });
-  }
-
-  override async onQuestion(question: string): Promise<string> {
-    return await this.documentQA.ask(question);
-  }
-}
+// When the Agent is asked a question that it cannot answer, it will invoke the on_question callback.
+agent.onQuestion(async (call: guava.Call, question: string) => {
+  // Forward the Agent's question to the knowledge base and return the answer.
+  // You can plug in any knowledge base system you want here.
+  return await documentQA.ask(question);
+});
 
 export async function run(args: string[]) {
-  const [phone] = args;
-
-  if (!phone) {
-    console.error("Usage: guava-example property-insurance <phone>");
-    process.exit(1);
-  }
-
-  new guava.Client().createOutbound(
-    process.env.GUAVA_AGENT_NUMBER!,
-    phone,
-    new InsuranceCallController(),
-  );
+  agent.inboundPhone(process.env.GUAVA_AGENT_NUMBER!);
 }

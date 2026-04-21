@@ -18,6 +18,7 @@ export const FieldItem = z
     required: z.boolean().default(true),
     choices: z.array(z.string()).default([]),
     choiceGenerator: z.custom<ChoiceGenerator>((val) => typeof val === "function").optional(),
+    searchable: z.boolean().default(false),
   })
   .refine((field) => {
     if (field.field_type === "multiple_choice" && field.choices.length > 10) {
@@ -65,6 +66,7 @@ export function Field(options: {
   required?: boolean;
   choices?: string[];
   choiceGenerator?: ChoiceGenerator;
+  searchable?: boolean;
 }): FieldItem {
   return FieldItem.parse({
     item_type: "field",
@@ -74,6 +76,7 @@ export function Field(options: {
     required: options.required,
     choices: options.choices,
     choiceGenerator: options.choiceGenerator,
+    searchable: options.searchable,
   });
 }
 

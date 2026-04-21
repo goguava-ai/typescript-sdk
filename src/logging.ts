@@ -44,7 +44,7 @@ function makeColoredMethod(
 ): (format: string, ...args: unknown[]) => void {
   if (!useColor) return fn.bind(console);
   return (format: string, ...args: unknown[]) =>
-    fn(`${LEVEL_COLORS[level]}[${level}] ${format}${ANSI_RESET}`, ...args);
+    fn(`${LEVEL_COLORS[level]}[${level.toLocaleUpperCase()}] ${format}${ANSI_RESET}`, ...args);
 }
 
 export function getConsoleLogger(loggerLevel: LogLevel, useColor = false): Logger {

@@ -100,6 +100,19 @@ export const ChoiceQueryEvent = z.object({
 });
 export type ChoiceQueryEvent = z.infer<typeof ChoiceQueryEvent>;
 
+export const ActionRequestEvent = z.object({
+  event_type: z.literal("action-request"),
+  intent_id: z.string(),
+  intent_summary: z.string(),
+});
+export type ActionRequestEvent = z.infer<typeof ActionRequestEvent>;
+
+export const ExecuteActionEvent = z.object({
+  event_type: z.literal("execute-action"),
+  action_key: z.string(),
+});
+export type ExecuteActionEvent = z.infer<typeof ExecuteActionEvent>;
+
 export const GuavaEvent = z.union([
   SessionStartedEvent,
   InboundCallEvent,
@@ -115,6 +128,8 @@ export const GuavaEvent = z.union([
   OutboundCallFailed,
   BotSessionEnded,
   ChoiceQueryEvent,
+  ActionRequestEvent,
+  ExecuteActionEvent,
 ]);
 export type GuavaEvent = z.infer<typeof GuavaEvent>;
 

@@ -1,5 +1,5 @@
 import * as z from "zod";
-import { ActionItem } from "./action_item.ts";
+import { ActionItem } from "./action-item.ts";
 
 export const StartOutboundCallCommand = z.strictObject({
   command_type: z.literal("start-outbound"),
@@ -39,6 +39,7 @@ export const SetTaskCommand = z.strictObject({
   task_id: z.string(),
   objective: z.string(),
   action_items: z.array(ActionItem),
+  completion_criteria: z.string().optional(),
 });
 export type SetTaskCommand = z.input<typeof SetTaskCommand>;
 
@@ -64,6 +65,16 @@ export const SetPersona = z.strictObject({
 });
 export type SetPersona = z.input<typeof SetPersona>;
 
+export const Language = z.enum(["english", "spanish", "french", "german", "italian"]);
+export type Language = z.infer<typeof Language>;
+
+export const SetLanguageModeCommand = z.strictObject({
+  command_type: z.literal("set-language-mode"),
+  primary: Language.default("english"),
+  secondary: z.array(Language).default([]),
+});
+export type SetLanguageModeCommand = z.input<typeof SetLanguageModeCommand>;
+
 export const SendInstructionCommand = z.strictObject({
   command_type: z.literal("send-instruction"),
   instruction: z.string(),
@@ -74,6 +85,7 @@ export const TransferCommand = z.strictObject({
   command_type: z.literal("transfer-call"),
   transfer_message: z.string(),
   to_number: z.string(),
+  soft_transfer: z.boolean().optional().default(false),
 });
 export type TransferCommand = z.input<typeof TransferCommand>;
 
@@ -81,8 +93,17 @@ export const RegisteredHooksCommand = z.strictObject({
   command_type: z.literal("registered-hooks"),
   has_on_question: z.boolean(),
   has_on_intent: z.boolean(),
+  has_on_action_requested: z.boolean().optional().default(false),
 });
 export type RegisteredHooksCommand = z.input<typeof RegisteredHooksCommand>;
+
+export const ActionSuggestionCommand = z.strictObject({
+  command_type: z.literal("action-suggestion"),
+  intent_id: z.string(),
+  action_key: z.string().nullable(),
+  action_description: z.string().default(""),
+});
+export type ActionSuggestionCommand = z.input<typeof ActionSuggestionCommand>;
 
 export const ChoiceResultCommand = z.strictObject({
   command_type: z.literal("choice-query-result"),
@@ -93,6 +114,12 @@ export const ChoiceResultCommand = z.strictObject({
 });
 export type ChoiceResultCommand = z.input<typeof ChoiceResultCommand>;
 
+export const RetryTaskCommand = z.strictObject({
+  command_type: z.literal("retry-task"),
+  reason: z.string(),
+});
+export type RetryTaskCommand = z.input<typeof RetryTaskCommand>;
+
 export const AnyCommand = z.union([
   StartOutboundCallCommand,
   ListenInboundCommand,
@@ -102,10 +129,13 @@ export const AnyCommand = z.union([
   ReadScriptCommand,
   AnswerQuestionCommand,
   SetPersona,
+  SetLanguageModeCommand,
   SendInstructionCommand,
   TransferCommand,
   RegisteredHooksCommand,
   ChoiceResultCommand,
+  ActionSuggestionCommand,
+  RetryTaskCommand,
 ]);
 export type Command = z.input<typeof AnyCommand>;
 

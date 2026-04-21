@@ -21,7 +21,7 @@ import {
   type SerializableFieldItem,
   Say,
   type TodoItem,
-} from "./action_item.ts";
+} from "./action-item.ts";
 import { telemetryClient } from "./telemetry.ts";
 
 export type TaskObjective =

@@ -5,7 +5,7 @@ This library allows you to build Guava voice agents using TypeScript or Javascri
 
 ## Documentation
 
-Full documentation for the TypeScript SDK can be found at [https://docs.goguava.ai/typescript-sdk/](https://docs.goguava.ai/typescript-sdk/)
+Full documentation for the TypeScript SDK can be found at [https://goguava.ai/docs/](https://goguava.ai/docs/). SDK examples can be found under [./examples/](https://github.com/goguava-ai/typescript-sdk/tree/main/examples).
 
 ## Try an Example
 
@@ -31,31 +31,3 @@ $ pnpm add @guava-ai/guava-sdk
 ```
 
 The SDK can be used with Javascript, but TypeScript is highly recommended.
-
-## Basic Usage
-
-The Guava SDK is primarily used by subclassing `guava.CallController`. `CallController` subclasses implement callbacks that steer the call in real-time.
-
-You can make outbound calls using a `CallController` instance.
-
-```typescript
-import * as guava from "@guava-ai/guava-sdk";
-
-// Make an outbound call with a call controller.
-new guava.Client().createOutbound(
-    agentNumber, toNumber,
-    new MyCallController(),
-);
-```
-
-You can also accept inbound calls using Guava. You don't need to setup a server — inbound calls can be received on your dev machine, including behind NATs and most firewalls.
-Instead of passing a controller, you will pass a factory function that constructs a controller upon receipt of a call.
-
-```typescript
-// Attach a listener to the phone number.
-// Spawn new call controllers as calls come in.
-new guava.Client().listenInbound(
-    { agent_number: agentNumber },
-    () => new MyCallController(),
-);
-```

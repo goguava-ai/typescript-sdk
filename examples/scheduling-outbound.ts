@@ -51,7 +51,7 @@ export async function run(args: string[]) {
     process.exit(1);
   }
 
-  agent.outboundPhone(process.env.GUAVA_AGENT_NUMBER, toNumber, {
+  agent.callPhone(process.env.GUAVA_AGENT_NUMBER, toNumber, {
     patientName: patientName,
   });
 }

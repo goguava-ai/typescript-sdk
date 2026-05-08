@@ -43,5 +43,5 @@ agent.onTaskComplete("waitlist", async (call: guava.Call) => {
 });
 
 export async function run(_args: string[]) {
-  agent.inboundPhone(process.env.GUAVA_AGENT_NUMBER!);
+  agent.listenPhone(process.env.GUAVA_AGENT_NUMBER!);
 }

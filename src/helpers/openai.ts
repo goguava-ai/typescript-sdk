@@ -11,7 +11,7 @@ function beta_create_openai_client(logger: Logger) {
   const baseUrl = getBaseUrl();
   // to get it working with OpenAI TS/JS client
   const basedUrl = new URL("openai/v1/", baseUrl);
-  logger.info(`Creating beta OpenAI client`);
+  logger.debug(`Creating beta OpenAI client`);
   return new OpenAI({
     baseURL: basedUrl.toString(),
     apiKey: process.env.GUAVA_API_KEY,

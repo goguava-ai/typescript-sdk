@@ -158,7 +158,7 @@ export class Agent {
     });
   }
 
-  inboundPhone(phoneNumber: string): InboundListener {
+  listenPhone(phoneNumber: string): InboundListener {
     return this._listenInbound({
       agent_number: phoneNumber,
     });
@@ -367,7 +367,7 @@ export class Agent {
   /**
    * @description use the Guava API to call out to a number
    */
-  async outboundPhone(
+  async callPhone(
     fromNumber: string | undefined,
     toNumber: string,
     variables: Record<string, any> = {},
@@ -424,6 +424,21 @@ export class Agent {
       // we are closing the socket, so don't trigger any other listeners
       ws.removeAllListeners();
     });
+  }
+
+  /* ===== Aliases to be removed at some point. ===== */
+  /** @deprecated Use {@link listenPhone} instead. */
+  inboundPhone(phoneNumber: string): InboundListener {
+    return this.listenPhone(phoneNumber);
+  }
+
+  /** @deprecated Use {@link callPhone} instead. */
+  async outboundPhone(
+    fromNumber: string | undefined,
+    toNumber: string,
+    variables: Record<string, any> = {},
+  ) {
+    return this.callPhone(fromNumber, toNumber, variables);
   }
 }
 

@@ -19,5 +19,5 @@ agent.onQuestion(async (call: guava.Call, question: string) => {
 });
 
 export async function run(args: string[]) {
-  agent.inboundPhone(process.env.GUAVA_AGENT_NUMBER!);
+  agent.listenPhone(process.env.GUAVA_AGENT_NUMBER!);
 }

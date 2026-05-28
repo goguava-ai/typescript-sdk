@@ -395,7 +395,7 @@ TASK COMPLETION REQUIREMENTS:
         this.logger.info(`Field ${event.key} updated with value: ${event.payload}`);
       }
     } else if (event.event_type === "inbound-call") {
-      this.onIncomingCall(event.caller_number);
+      this.onIncomingCall(event.caller_number || undefined);
     } else if (event.event_type === "bot-session-ended") {
       this.onSessionDone();
     } else if (event.event_type === "outbound-call-connected") {

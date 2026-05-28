@@ -42,6 +42,13 @@ agent.onTaskComplete("waitlist", async (call: guava.Call) => {
   await call.hangup("Thank the caller and let them know we'll text when their table is ready.");
 });
 
-export async function run(_args: string[]) {
-  agent.listenPhone(process.env.GUAVA_AGENT_NUMBER!);
+export async function run(args: string[]) {
+  if (args.includes("--webrtc")) {
+    await agent.listenWebrtc();
+  } else if (args.includes("--phone")) {
+    agent.listenPhone(process.env.GUAVA_AGENT_NUMBER!);
+  } else {
+    console.error("Usage: guava-example restaurant-waitlist --phone | --webrtc");
+    process.exit(1);
+  }
 }

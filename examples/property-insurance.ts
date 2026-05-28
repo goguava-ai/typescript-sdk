@@ -19,5 +19,12 @@ agent.onQuestion(async (call: guava.Call, question: string) => {
 });
 
 export async function run(args: string[]) {
-  agent.listenPhone(process.env.GUAVA_AGENT_NUMBER!);
+  if (args.includes("--webrtc")) {
+    await agent.listenWebrtc();
+  } else if (args.includes("--phone")) {
+    agent.listenPhone(process.env.GUAVA_AGENT_NUMBER!);
+  } else {
+    console.error("Usage: guava-example property-insurance --phone | --webrtc");
+    process.exit(1);
+  }
 }

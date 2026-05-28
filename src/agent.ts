@@ -25,8 +25,8 @@ import {
 import { telemetryClient } from "./telemetry.ts";
 
 export interface CallInfo {
-  caller_number?: string;
-  agent_number?: string;
+  caller_number: string | null;
+  agent_number: string | null;
 }
 
 export type IncomingCallAction = { action: "accept" } | { action: "decline" };
@@ -162,6 +162,14 @@ export class Agent {
     return this._listenInbound({
       agent_number: phoneNumber,
     });
+  }
+
+  async listenWebrtc(webrtcCode?: string): Promise<InboundListener> {
+    if (!webrtcCode) {
+      this._logger.info("No WebRTC code provided. Creating a temporary one.");
+      webrtcCode = await this._client.createWebrtcAgent(3600);
+    }
+    return this._listenInbound({ webrtc_code: webrtcCode });
   }
 
   private async _dispatchEvent(call: Call, event: GuavaEvent) {
@@ -317,7 +325,7 @@ export class Agent {
         `debug-webrtc?webrtc_code=${webrtc_code}`,
         this._client.getHttpBase(),
       );
-      this._logger.debug(`WebRTC DebugURL: ${debugurl}`);
+      this._logger.info(`Call your agent at: ${debugurl}`);
     }
 
     ws.addEventListener("open", (_ev) => {
@@ -335,6 +343,7 @@ export class Agent {
     });
 
     ws.addEventListener("message", async (ev) => {
+      this._logger.debug("Received message: %s", ev.data.toString("utf8"));
       const tunnel_event = InboundTunnelEvent.parse(JSON.parse(ev.data.toString("utf8")));
       if (!(tunnel_event.call_id in calls)) {
         this._logger.info(

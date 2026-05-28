@@ -8,8 +8,8 @@ export type SessionStartedEvent = z.infer<typeof SessionStartedEvent>;
 
 export const InboundCallEvent = z.object({
   event_type: z.literal("inbound-call"),
-  caller_number: z.e164().optional(),
-  agent_number: z.e164().optional(),
+  caller_number: z.e164().nullable(),
+  agent_number: z.e164().nullable(),
 });
 export type InboundCallEvent = z.infer<typeof InboundCallEvent>;
 
@@ -113,7 +113,7 @@ export const ExecuteActionEvent = z.object({
 });
 export type ExecuteActionEvent = z.infer<typeof ExecuteActionEvent>;
 
-export const GuavaEvent = z.union([
+export const GuavaEvent = z.discriminatedUnion("event_type", [
   SessionStartedEvent,
   InboundCallEvent,
   CallerSpeechEvent,

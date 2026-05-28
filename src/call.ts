@@ -269,6 +269,18 @@ TASK COMPLETION REQUIREMENTS:
     await this.setTask({ taskId: "reach_person", objective, checklist });
   }
 
+  async setVoicemailAction(action: { hangup: true } | { message: string }) {
+    if ("hangup" in action) {
+      await this.sendInstruction(
+        "If you encounter an answering machine, DO NOT leave a message. REMAIN SILENT AND HANG UP WITHOUT RESPONDING.",
+      );
+    } else {
+      await this.sendInstruction(
+        `If you encounter an answering machine, say this message VERBATIM: ${action.message}`,
+      );
+    }
+  }
+
   async setVariable(variableName: string, variableValue: any) {
     this._variables[variableName] = variableValue;
   }

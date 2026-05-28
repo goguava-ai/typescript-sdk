@@ -126,6 +126,23 @@ export class Client {
   }
 
   /**
+   * Creates a WebRTC agent and returns its code, which can be used to receive inbound calls over WebRTC.
+   * @param ttlSec - How long the agent code remains valid, in seconds. Defaults to no expiration.
+   */
+  async createWebrtcAgent(ttlSec?: number): Promise<string> {
+    const url = new URL("v1/webrtc-agents", this.getHttpBase());
+    if (ttlSec !== undefined) {
+      url.searchParams.set("ttl_sec", ttlSec.toString());
+    }
+    const response = await fetchOrThrow(url, {
+      method: "POST",
+      headers: this.headers(),
+    });
+    const body = (await response.json()) as { webrtc_code: string };
+    return body.webrtc_code;
+  }
+
+  /**
    * @description use the Guava API to call out to a number
    */
   createOutbound(fromNumber: string | undefined, toNumber: string, callController: CallController) {

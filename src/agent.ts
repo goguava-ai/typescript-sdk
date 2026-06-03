@@ -1,6 +1,8 @@
 import WebSocket from "ws";
 import { Call, Client } from "./index.ts";
 import { getDefaultLogger, type Logger } from "./logging.ts";
+import { getBaseUrl } from "./utils.ts";
+import { runWebrtcHelper } from "./webrtc-helper.ts";
 import * as z from "zod";
 import {
   ListenInboundCommand,
@@ -170,6 +172,12 @@ export class Agent {
       webrtcCode = await this._client.createWebrtcAgent(3600);
     }
     return this._listenInbound({ webrtc_code: webrtcCode });
+  }
+
+  async callLocal(): Promise<void> {
+    const webrtcCode = await this._client.createWebrtcAgent(300);
+    this._listenInbound({ webrtc_code: webrtcCode });
+    await runWebrtcHelper(webrtcCode, getBaseUrl());
   }
 
   private async _dispatchEvent(call: Call, event: GuavaEvent) {

@@ -23,8 +23,10 @@ export async function run(args: string[]) {
     await agent.listenWebrtc();
   } else if (args.includes("--phone")) {
     agent.listenPhone(process.env.GUAVA_AGENT_NUMBER!);
+  } else if (args.includes("--local")) {
+    await agent.callLocal();
   } else {
-    console.error("Usage: guava-example property-insurance --phone | --webrtc");
+    console.error("Usage: guava-example property-insurance --phone | --webrtc | --local");
     process.exit(1);
   }
 }

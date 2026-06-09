@@ -89,6 +89,13 @@ export type OutboundCallFailed = z.infer<typeof OutboundCallFailed>;
 
 export const BotSessionEnded = z.object({
   event_type: z.literal("bot-session-ended"),
+  termination_reason: z.enum([
+    "user-hangup",
+    "bot-hangup",
+    "bot-failure",
+    "bot-transfer",
+    "voicemail",
+  ]),
 });
 export type BotSessionEnded = z.infer<typeof BotSessionEnded>;
 
@@ -133,9 +140,24 @@ export const GuavaEvent = z.discriminatedUnion("event_type", [
 ]);
 export type GuavaEvent = z.infer<typeof GuavaEvent>;
 
-const _KNOWN_EVENT_TYPES = new Set(
+const _KNOWN_EVENT_TYPES: Set<string> = new Set(
   GuavaEvent.options.map((schema) => schema.shape.event_type.value),
 );
+
+export function decodeEventDict(data: Record<string, unknown>): GuavaEvent | null {
+  if (typeof data.event_type !== "string") {
+    throw new Error(
+      `Received event with non-string event_type: ${JSON.stringify(data.event_type)}`,
+    );
+  }
+  if (!_KNOWN_EVENT_TYPES.has(data.event_type)) {
+    process.emitWarning(
+      `Received an unknown event type ${data.event_type}. Update to a newer version of this SDK.`,
+    );
+    return null;
+  }
+  return GuavaEvent.parse(data);
+}
 
 export function decodeEvent(
   serialized_event: string | ArrayBuffer | Buffer | Buffer[],
@@ -154,15 +176,7 @@ export function decodeEvent(
   } else {
     data = JSON.parse(serialized_event.toString("utf8"));
   }
-
-  if (!_KNOWN_EVENT_TYPES.has(data.event_type)) {
-    process.emitWarning(
-      `Received an unknown event type ${data.event_type}. Update to a newer version of this SDK.`,
-    );
-    return null;
-  }
-
-  return GuavaEvent.parse(data);
+  return decodeEventDict(data);
 }
 
 export const InboundTunnelEvent = z.object({

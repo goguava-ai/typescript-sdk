@@ -49,8 +49,10 @@ export async function run(args: string[]) {
     agent.listenPhone(process.env.GUAVA_AGENT_NUMBER!);
   } else if (args.includes("--local")) {
     await agent.callLocal();
+  } else if (args.includes("--chat")) {
+    await agent.chat();
   } else {
-    console.error("Usage: guava-example restaurant-waitlist --phone | --webrtc | --local");
+    console.error("Usage: guava-example restaurant-waitlist --phone | --webrtc | --local | --chat");
     process.exit(1);
   }
 }

@@ -37,26 +37,34 @@ function shouldLog(messageLevel: LogLevel, loggerLevel: LogLevel) {
 
 function noop(format: string, ...args: unknown[]) {}
 
+type ConsoleLevel = "debug" | "info" | "warn" | "error";
+
 function makeColoredMethod(
-  fn: (...args: unknown[]) => void,
-  level: LogLevel,
+  level: ConsoleLevel,
   useColor: boolean,
 ): (format: string, ...args: unknown[]) => void {
-  if (!useColor) return fn.bind(console);
-  return (format: string, ...args: unknown[]) =>
-    fn(`${LEVEL_COLORS[level]}[${level.toLocaleUpperCase()}] ${format}${ANSI_RESET}`, ...args);
+  if (!useColor) return (format: string, ...args: unknown[]) => console[level](format, ...args);
+  return (format: string, ...args: unknown[]) => {
+    const now = new Date();
+    const time = now.toLocaleTimeString("en-US", {
+      hour12: false,
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+    console[level](
+      `${LEVEL_COLORS[level]}[${level.toLocaleUpperCase().padEnd(5)} ${time}] ${format}${ANSI_RESET}`,
+      ...args,
+    );
+  };
 }
 
 export function getConsoleLogger(loggerLevel: LogLevel, useColor = false): Logger {
   return {
-    debug: shouldLog("debug", loggerLevel)
-      ? makeColoredMethod(console.debug, "debug", useColor)
-      : noop,
-    info: shouldLog("info", loggerLevel) ? makeColoredMethod(console.info, "info", useColor) : noop,
-    warn: shouldLog("warn", loggerLevel) ? makeColoredMethod(console.warn, "warn", useColor) : noop,
-    error: shouldLog("error", loggerLevel)
-      ? makeColoredMethod(console.error, "error", useColor)
-      : noop,
+    debug: shouldLog("debug", loggerLevel) ? makeColoredMethod("debug", useColor) : noop,
+    info: shouldLog("info", loggerLevel) ? makeColoredMethod("info", useColor) : noop,
+    warn: shouldLog("warn", loggerLevel) ? makeColoredMethod("warn", useColor) : noop,
+    error: shouldLog("error", loggerLevel) ? makeColoredMethod("error", useColor) : noop,
   };
 }
 

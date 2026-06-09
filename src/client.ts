@@ -9,9 +9,18 @@ import * as z from "zod";
 import { ErrorEvent, SessionStartedEvent, decodeEvent, InboundTunnelEvent } from "./events.ts";
 import { SDK_VERSION } from "./version.ts";
 import os from "node:os";
+import * as fs from "node:fs";
 import { getBaseUrl, fetchOrThrow } from "./utils.ts";
 import { telemetryClient } from "./telemetry.ts";
 import type { CallController } from "./call-controller.ts";
+import {
+  type AuthStrategy,
+  APIKeyAuth,
+  GuavaDeploy,
+  CLIAuth,
+  getCLIAuth,
+  GUAVA_DEPLOY_TOKEN_PATH,
+} from "./auth.ts";
 
 const SDK_NAME = "typescript-sdk";
 
@@ -28,7 +37,7 @@ const https_start = /^https:\/\//;
 
 @telemetryClient.trackClass()
 export class Client {
-  private _apiKey: string;
+  private _auth: AuthStrategy;
   private _baseUrl: string;
   private _logger: Logger;
   private _ws?: WebSocket;
@@ -50,14 +59,18 @@ export class Client {
       this._baseUrl = getBaseUrl();
     }
 
-    // Resolve the API key.
+    // Resolve auth strategy.
     if (apiKey) {
-      this._apiKey = apiKey;
+      this._auth = new APIKeyAuth(apiKey);
+    } else if (fs.existsSync(GUAVA_DEPLOY_TOKEN_PATH)) {
+      this._auth = new GuavaDeploy();
     } else if (process.env.GUAVA_API_KEY) {
-      this._apiKey = process.env.GUAVA_API_KEY;
+      this._auth = new APIKeyAuth(process.env.GUAVA_API_KEY);
+    } else if (CLIAuth.exists()) {
+      this._auth = getCLIAuth();
     } else {
       throw new Error(
-        "Guava API key must be provided either as argument to client constructor, or in environment variable GUAVA_API_KEY.",
+        "Unable to authenticate to Guava. You must do one of the following:\n- Sign in using the Guava CLI.\n- Or, provide an API key using the GUAVA_API_KEY environment variable.\n- Or, provide the API key as an argument to the constructor.",
       );
     }
 
@@ -70,7 +83,7 @@ export class Client {
         });
       }
 
-      telemetryClient.setSdkHeaders(this.headers());
+      telemetryClient.setSdkClient(this);
       this._checkSdkDeprecation();
     }
   }
@@ -89,9 +102,9 @@ export class Client {
     return this._baseUrl;
   }
 
-  headers() {
+  async headers(): Promise<Record<string, string>> {
     return {
-      Authorization: `Bearer ${this._apiKey}`,
+      ...(await this._auth.getHeaders()),
       "x-guava-platform": os.platform(),
       "x-guava-runtime": process.release.name,
       "x-guava-runtime-version": process.version,
@@ -108,7 +121,7 @@ export class Client {
       url.searchParams.set("sdk_version", SDK_VERSION);
       const response = await fetchOrThrow(url, {
         method: "POST",
-        headers: this.headers(),
+        headers: await this.headers(),
       });
       const body = (await response.json()) as { deprecation_status: string };
       if (body.deprecation_status === "supported") {
@@ -136,7 +149,7 @@ export class Client {
     }
     const response = await fetchOrThrow(url, {
       method: "POST",
-      headers: this.headers(),
+      headers: await this.headers(),
     });
     const body = (await response.json()) as { webrtc_code: string };
     return body.webrtc_code;
@@ -145,10 +158,14 @@ export class Client {
   /**
    * @description use the Guava API to call out to a number
    */
-  createOutbound(fromNumber: string | undefined, toNumber: string, callController: CallController) {
+  async createOutbound(
+    fromNumber: string | undefined,
+    toNumber: string,
+    callController: CallController,
+  ) {
     const url = new URL("v1/create-outbound", this.getWebsocketBase());
     const ws = new WebSocket(url, {
-      headers: this.headers(),
+      headers: await this.headers(),
     });
 
     ws.addEventListener("open", async (_ev) => {
@@ -236,16 +253,16 @@ export class Client {
   /**
    * @description use the Guava API to receive calls at a given number
    */
-  listenInbound<U extends CallController>(
+  async listenInbound<U extends CallController>(
     conn: InboundConnection,
     controllerClassFactory: (logger: Logger) => U,
-  ) {
+  ): Promise<InboundListener> {
     const callControllers: Record<string, U> = {};
 
     // return a way to *stop* listening
     const url = new URL("v1/listen-inbound", this.getWebsocketBase());
     const ws = new WebSocket(url, {
-      headers: this.headers(),
+      headers: await this.headers(),
     });
     let agent_number: string | undefined;
     let webrtc_code: string | undefined;

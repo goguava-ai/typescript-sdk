@@ -3,7 +3,7 @@ import { DocumentQA, IntentRecognizer } from "@guava-ai/guava-sdk/helpers/openai
 import { FURNITURE_RETAILER_QA } from "@guava-ai/guava-sdk/example-data";
 import { getDefaultLogger } from "@guava-ai/guava-sdk";
 
-const agent = new guava.Agent({
+export const agent = new guava.Agent({
   name: "Nova",
   organization: "Clearfield Home & Living",
   purpose: "Answer questions and route callers to the appropriate department.",
@@ -55,6 +55,17 @@ agent.onAction("other", async (call: guava.Call) => {
   );
 });
 
-export async function run(_args: string[]) {
-  agent.listenPhone(process.env.GUAVA_AGENT_NUMBER!);
+export async function run(args: string[]) {
+  if (args.includes("--webrtc")) {
+    await agent.listenWebrtc();
+  } else if (args.includes("--phone")) {
+    agent.listenPhone(process.env.GUAVA_AGENT_NUMBER!);
+  } else if (args.includes("--local")) {
+    await agent.callLocal();
+  } else if (args.includes("--chat")) {
+    await agent.chat();
+  } else {
+    console.error("Usage: guava-example help-desk --phone | --webrtc | --local | --chat");
+    process.exit(1);
+  }
 }

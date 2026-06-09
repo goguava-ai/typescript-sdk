@@ -44,10 +44,17 @@ agent.onTaskComplete("schedule_appointment", async (call) => {
 });
 
 export async function run(args: string[]) {
+  if (args.includes("--chat")) {
+    const patientName = args[args.indexOf("--chat") + 1] ?? "Benjamin Buttons";
+    await agent.chat({ patientName });
+    return;
+  }
+
   const [toNumber, patientName = "Benjamin Buttons"] = args;
 
   if (!toNumber) {
     console.error("Usage: guava-example scheduling-outbound <phone> [name]");
+    console.error("       guava-example scheduling-outbound --chat [name]");
     process.exit(1);
   }
 

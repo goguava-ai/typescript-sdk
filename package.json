@@ -2,7 +2,7 @@
   "name": "@guava-ai/guava-sdk",
   "description": "The official TypeScript SDK for building Guava voice agents.",
   "homepage": "https://docs.goguava.ai/typescript-sdk/",
-  "version": "0.18.0",
+  "version": "0.19.0",
   "type": "commonjs",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
@@ -18,12 +18,19 @@
     "./example-data": {
       "types": "./dist/src/example-data.d.ts",
       "default": "./dist/src/example-data.js"
+    },
+    "./examples/help-desk": {
+      "types": "./dist/examples/help-desk.d.ts",
+      "default": "./dist/examples/help-desk.js"
     }
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.9",
+    "@types/jest": "^30.0.0",
     "@types/node": "^25.0.7",
     "@types/ws": "^8.18.1",
+    "jest": "^30.4.2",
+    "ts-jest": "^29.4.11",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   },
@@ -42,6 +49,7 @@
     "autofix": "npm run format && npm run lint-fix",
     "check-format": "biome format ./src ./examples",
     "format": "biome format --write ./src ./examples",
+    "test": "jest",
     "check": "npm run typecheck && npm audit && npm run lint && npm run check-format",
     "clean": "rm -rf ./dist",
     "build": "tsx scripts/update-version.ts && tsc && chmod +x ./dist/bin/example-runner.js",

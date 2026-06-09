@@ -1,5 +1,6 @@
 import { getDefaultLogger, type Logger } from "./logging.ts";
-import { getBaseUrl, fetchOrThrow } from "./utils.ts";
+import { fetchOrThrow } from "./utils.ts";
+import type { Client } from "./client.ts";
 
 const QUEUE_MAX_SIZE = 100;
 const UPLOAD_INTERVAL_MS = 10_000;
@@ -25,12 +26,12 @@ interface QueuedEvent {
 }
 
 export abstract class BaseTelemetryClient {
-  protected sdkHeaders: Record<string, string> = {};
+  protected _sdkClient: Client | null = null;
 
   abstract sendEvent(event: TelemetryEvent, data?: Record<string, unknown>): void;
 
-  setSdkHeaders(headers: Record<string, string>) {
-    this.sdkHeaders = headers;
+  setSdkClient(client: Client) {
+    this._sdkClient = client;
   }
 
   trackClass(onlyExceptions = new Set<string>()) {
@@ -70,11 +71,9 @@ export abstract class BaseTelemetryClient {
 export class TelemetryClient extends BaseTelemetryClient {
   private queue: QueuedEvent[] = [];
   private timer: ReturnType<typeof setInterval>;
-  private readonly baseUrl: string;
 
   constructor() {
     super();
-    this.baseUrl = getBaseUrl();
     this.timer = setInterval(() => {
       void this.uploadEvents();
     }, UPLOAD_INTERVAL_MS);
@@ -94,6 +93,10 @@ export class TelemetryClient extends BaseTelemetryClient {
   }
 
   private async uploadEvents() {
+    if (!this._sdkClient) {
+      logger.debug("No SDK client. Cannot upload telemetry events.");
+      return;
+    }
     const payload = this.queue.splice(0);
     if (!payload.length) {
       logger.debug("No events to upload.");
@@ -101,10 +104,10 @@ export class TelemetryClient extends BaseTelemetryClient {
     }
     logger.debug(`Uploading ${payload.length} telemetry events.`);
     try {
-      const url = new URL("v1/upload-telemetry", this.baseUrl);
+      const url = new URL("v1/upload-telemetry", this._sdkClient.getHttpBase());
       await fetchOrThrow(url, {
         method: "POST",
-        headers: { ...this.sdkHeaders, "Content-Type": "application/json" },
+        headers: { ...(await this._sdkClient.headers()), "Content-Type": "application/json" },
         body: JSON.stringify({ events: payload }),
       });
     } catch (e) {

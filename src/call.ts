@@ -33,7 +33,7 @@ export type ReachPersonOutcome = {
 
 @telemetryClient.trackClass()
 export class Call {
-  private _commandQueue: Command[] = [];
+  protected _commandQueue: Command[] = [];
   private _variables: Record<string, any> = {};
   protected logger: Logger;
 
@@ -272,11 +272,11 @@ TASK COMPLETION REQUIREMENTS:
   async setVoicemailAction(action: { hangup: true } | { message: string }) {
     if ("hangup" in action) {
       await this.sendInstruction(
-        "If you encounter an answering machine, DO NOT leave a message. REMAIN SILENT AND HANG UP WITHOUT RESPONDING.",
+        "If you encounter an answering machine, DO NOT leave a message. REMAIN SILENT AND HANG UP WITHOUT RESPONDING. You should only do this when it's clear you are unable to reach the person.",
       );
     } else {
       await this.sendInstruction(
-        `If you encounter an answering machine, say this message VERBATIM: ${action.message}`,
+        `If you encounter an answering machine, say this message VERBATIM: ${action.message}. You should only leave this message if it's clear you are unable to reach the person.`,
       );
     }
   }

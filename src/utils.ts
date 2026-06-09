@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
@@ -15,8 +16,21 @@ export function getPlatformConfigDir(): string {
   return process.env.XDG_CONFIG_HOME ?? path.join(home, ".config");
 }
 
+export function getCliConfigPath(): string {
+  return path.join(getPlatformConfigDir(), "guava", "config.json");
+}
+
 export function getBaseUrl(): string {
-  return process.env.GUAVA_BASE_URL ?? DEFAULT_BASE_URL;
+  if (process.env.GUAVA_BASE_URL) return process.env.GUAVA_BASE_URL;
+
+  // Try reading from the CLI config.
+  const configPath = getCliConfigPath();
+  if (fs.existsSync(configPath)) {
+    const config = JSON.parse(fs.readFileSync(configPath, "utf8")) as { base_url?: string };
+    if (config.base_url) return config.base_url;
+  }
+
+  return DEFAULT_BASE_URL;
 }
 
 class HttpStatusError extends Error {

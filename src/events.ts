@@ -99,6 +99,9 @@ export const BotSessionEnded = z.object({
 });
 export type BotSessionEnded = z.infer<typeof BotSessionEnded>;
 
+/** Why a bot session ended. */
+export type TerminationReason = BotSessionEnded["termination_reason"];
+
 export const ChoiceQueryEvent = z.object({
   event_type: z.literal("choice-query"),
   field_key: z.string(),
@@ -120,6 +123,30 @@ export const ExecuteActionEvent = z.object({
 });
 export type ExecuteActionEvent = z.infer<typeof ExecuteActionEvent>;
 
+export type DTMFDigit =
+  | "0"
+  | "1"
+  | "2"
+  | "3"
+  | "4"
+  | "5"
+  | "6"
+  | "7"
+  | "8"
+  | "9"
+  | "*"
+  | "#"
+  | "A"
+  | "B"
+  | "C"
+  | "D";
+
+export const DTMFPressedEvent = z.object({
+  event_type: z.literal("dtmf"),
+  digit: z.enum(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "#", "A", "B", "C", "D"]),
+});
+export type DTMFPressedEvent = z.infer<typeof DTMFPressedEvent>;
+
 export const GuavaEvent = z.discriminatedUnion("event_type", [
   SessionStartedEvent,
   InboundCallEvent,
@@ -137,6 +164,7 @@ export const GuavaEvent = z.discriminatedUnion("event_type", [
   ChoiceQueryEvent,
   ActionRequestEvent,
   ExecuteActionEvent,
+  DTMFPressedEvent,
 ]);
 export type GuavaEvent = z.infer<typeof GuavaEvent>;
 

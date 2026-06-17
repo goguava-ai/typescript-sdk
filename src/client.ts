@@ -10,7 +10,8 @@ import { ErrorEvent, SessionStartedEvent, decodeEvent, InboundTunnelEvent } from
 import { SDK_VERSION } from "./version.ts";
 import os from "node:os";
 import * as fs from "node:fs";
-import { getBaseUrl, fetchOrThrow } from "./utils.ts";
+import { getBaseUrl, fetchOrThrow, sleep } from "./utils.ts";
+import { SmsMessage } from "./sms.ts";
 import { telemetryClient } from "./telemetry.ts";
 import type { CallController } from "./call-controller.ts";
 import {
@@ -23,6 +24,14 @@ import {
 } from "./auth.ts";
 
 const SDK_NAME = "typescript-sdk";
+
+export interface ClientOptions {
+  apiKey?: string;
+  baseUrl?: string;
+  logger?: Logger;
+  captureWarnings?: boolean;
+  checkDeprecation?: boolean;
+}
 
 let firstClient = false;
 
@@ -44,7 +53,13 @@ export class Client {
   private _controller?: CallController;
   private messageHandler?: (_: WebSocket.MessageEvent) => void;
 
-  constructor(apiKey?: string, baseUrl?: string, logger?: Logger, captureWarnings: boolean = true) {
+  constructor({
+    apiKey,
+    baseUrl,
+    logger,
+    captureWarnings = true,
+    checkDeprecation = true,
+  }: ClientOptions = {}) {
     // Set up the default logger.
     if (logger) {
       this._logger = logger;
@@ -84,7 +99,9 @@ export class Client {
       }
 
       telemetryClient.setSdkClient(this);
-      this._checkSdkDeprecation();
+      if (checkDeprecation) {
+        this._checkSdkDeprecation();
+      }
     }
   }
 
@@ -153,6 +170,73 @@ export class Client {
     });
     const body = (await response.json()) as { webrtc_code: string };
     return body.webrtc_code;
+  }
+
+  /**
+   * Sends an SMS message from one of your Guava numbers.
+   * @param fromNumber - One of your Guava numbers (E.164). Must have SMS configured.
+   * @param toNumber - The recipient's number (E.164).
+   * @param message - The message body to send.
+   */
+  async sendSms(fromNumber: string, toNumber: string, message: string): Promise<void> {
+    const url = new URL("v1/send-sms", this.getHttpBase());
+    await fetchOrThrow(url, {
+      method: "POST",
+      headers: { ...(await this.headers()), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from_number: fromNumber,
+        to_number: toNumber,
+        message,
+      }),
+    });
+  }
+
+  /**
+   * Waits for and returns the next inbound SMS sent from `fromNumber` to `toNumber`.
+   *
+   * Polls the inbox for messages received after this call begins, resolving once one
+   * arrives or `timeoutMs` elapses. Note the direction: `fromNumber` is the external
+   * number you're waiting to hear from, and `toNumber` is your Guava number — the
+   * opposite of {@link sendSms}.
+   *
+   * @param fromNumber - The external number to wait for a message from (E.164).
+   * @param toNumber - Your Guava number that will receive the message (E.164).
+   * @param options.timeoutMs - Max time to wait before giving up. Defaults to 60000.
+   * @param options.pollIntervalMs - Time between inbox checks. Defaults to 2000.
+   * @returns The message, or `null` if `timeoutMs` elapses with no new message.
+   */
+  async nextSms(
+    fromNumber: string,
+    toNumber: string,
+    options?: { timeoutMs?: number; pollIntervalMs?: number },
+  ): Promise<SmsMessage | null> {
+    const timeoutMs = options?.timeoutMs ?? 60_000;
+    const pollIntervalMs = options?.pollIntervalMs ?? 2_000;
+    const start = new Date().toISOString();
+    const deadline = Date.now() + timeoutMs;
+    while (true) {
+      const url = new URL("v1/messages", this.getHttpBase());
+      url.searchParams.set("to_number", toNumber);
+      url.searchParams.set("from_number", fromNumber);
+      url.searchParams.set("modality", "sms");
+      url.searchParams.set("start", start);
+      const response = await fetchOrThrow(url, {
+        method: "GET",
+        headers: await this.headers(),
+      });
+      // The endpoint returns matches oldest-first, so the earliest message after
+      // `start` is always the first element — we only need one, so `has_more`
+      // (which signals additional *later* messages) is irrelevant here.
+      const body = (await response.json()) as { messages: unknown[] };
+      if (body.messages?.length) {
+        return SmsMessage.parse(body.messages[0]);
+      }
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) {
+        return null;
+      }
+      await sleep(Math.min(pollIntervalMs, remaining));
+    }
   }
 
   /**

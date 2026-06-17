@@ -1,5 +1,6 @@
 # Examples
 
+- [example.test.ts](./example.test.ts) - Demonstrates agent testing using `agent.test()`, `agent.testRoleplay()`, `agent.patch()`, and `session.evaluate()` against the help-desk agent, covering handler unit tests, full simulated sessions, LLM-driven roleplay, and patched agent behavior.
 - [help-desk.ts](./help-desk.ts) - An inbound phone call example for a furniture retailer that uses `DocumentQA` to answer product questions and `IntentRecognizer` to classify caller intent, then transfers the caller to the appropriate department (sales, delivery and returns, account management, or general support).
 - [property-insurance.ts](./property-insurance.ts) - An inbound phone call example (supporting both phone and WebRTC) that uses `DocumentQA` and RAG to answer caller questions about a property insurance policy.
 - [restaurant-waitlist.ts](./restaurant-waitlist.ts) - An inbound phone call example (supporting both phone and WebRTC) where the agent collects caller name, party size, and phone number to add the caller to a restaurant waitlist, then hangs up after confirming the details.

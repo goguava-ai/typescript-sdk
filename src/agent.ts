@@ -14,6 +14,8 @@ import {
   type GuavaEvent,
   type CallerSpeechEvent,
   type AgentSpeechEvent,
+  type BotSessionEnded,
+  type DTMFPressedEvent,
   decodeEventDict,
 } from "./events.ts";
 import { telemetryClient } from "./telemetry.ts";
@@ -64,7 +66,8 @@ export class Agent {
   ) => Promise<SuggestedAction | undefined>;
   private _onActionGeneric?: (call: Call, actionKey: string) => Promise<void>;
   private _onActionHandlers: Record<string, (call: Call) => Promise<void>> = {};
-  private _onSessionEnd?: (call: Call) => Promise<void>;
+  private _onSessionEnd?: (call: Call, event: BotSessionEnded) => Promise<void>;
+  private _onDtmf?: (call: Call, event: DTMFPressedEvent) => Promise<void>;
 
   constructor(args?: { name?: string; organization?: string; purpose?: string }) {
     this._name = args?.name;
@@ -138,8 +141,12 @@ export class Agent {
     }
   }
 
-  onSessionEnd(callback: (call: Call) => Promise<void>): void {
+  onSessionEnd(callback: (call: Call, event: BotSessionEnded) => Promise<void>): void {
     this._onSessionEnd = callback;
+  }
+
+  onDtmf(callback: (call: Call, event: DTMFPressedEvent) => Promise<void>): void {
+    this._onDtmf = callback;
   }
 
   get handlers() {
@@ -181,9 +188,9 @@ export class Agent {
         if (actionKey in this._onActionHandlers) return this._onActionHandlers[actionKey](call);
         throw new Error(`No onAction handler registered for action '${actionKey}'.`);
       },
-      onSessionEnd: (call: Call) => {
+      onSessionEnd: (call: Call, event: BotSessionEnded) => {
         if (!this._onSessionEnd) throw new Error("No onSessionEnd handler registered.");
-        return this._onSessionEnd(call);
+        return this._onSessionEnd(call, event);
       },
     };
   }
@@ -310,8 +317,10 @@ export class Agent {
       if (testSession) {
         testSession.terminationReason = event.termination_reason;
       }
-      if (this._onSessionEnd !== undefined) {
-        await this._onSessionEnd(call);
+      await this._onSessionEnd?.(call, event);
+    } else if (event.event_type === "dtmf") {
+      if (this._onDtmf !== undefined) {
+        await this._onDtmf(call, event);
       }
     } else if (event.event_type === "error") {
       this._logger.error(`The Guava agent reported an error: ${event.content}`);
@@ -661,6 +670,7 @@ Choose "speak" and provide your next utterance, or choose "hangup" if the conver
     cloned._onActionGeneric = this._onActionGeneric;
     cloned._onActionHandlers = { ...this._onActionHandlers };
     cloned._onSessionEnd = this._onSessionEnd;
+    cloned._onDtmf = this._onDtmf;
     return cloned;
   }
 

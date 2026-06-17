@@ -45,6 +45,10 @@ class HttpStatusError extends Error {
   }
 }
 
+export function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 export async function fetchOrThrow(
   input: RequestInfo | URL,
   init?: RequestInit,

@@ -13,7 +13,8 @@ export const FieldItem = z
   .object({
     item_type: z.literal("field"),
     key: z.string(),
-    description: z.string(),
+    description: z.string().default(""),
+    question: z.string().default(""),
     field_type: FieldItemType,
     required: z.boolean().default(true),
     choices: z.array(z.string()).default([]),
@@ -34,7 +35,8 @@ export type FieldItem = z.input<typeof FieldItem>;
 export const SerializableFieldItem = z.object({
   item_type: z.literal("field"),
   key: z.string(),
-  description: z.string(),
+  description: z.string().default(""),
+  question: z.string().default(""),
   field_type: FieldItemType,
   required: z.boolean().default(true),
   choices: z.array(z.string()).default([]),
@@ -61,7 +63,8 @@ export type ActionItem = z.input<typeof ActionItem>;
 
 export function Field(options: {
   key: string;
-  description: string;
+  description?: string;
+  question?: string;
   fieldType: FieldItemType;
   required?: boolean;
   choices?: string[];
@@ -72,6 +75,7 @@ export function Field(options: {
     item_type: "field",
     key: options.key,
     description: options.description,
+    question: options.question,
     field_type: options.fieldType,
     required: options.required,
     choices: options.choices,

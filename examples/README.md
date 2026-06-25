@@ -1,7 +1,8 @@
 # Examples
 
-- [example.test.ts](./example.test.ts) - Demonstrates agent testing using `agent.test()`, `agent.testRoleplay()`, `agent.patch()`, and `session.evaluate()` against the help-desk agent, covering handler unit tests, full simulated sessions, LLM-driven roleplay, and patched agent behavior.
-- [help-desk.ts](./help-desk.ts) - An inbound phone call example for a furniture retailer that uses `DocumentQA` to answer product questions and `IntentRecognizer` to classify caller intent, then transfers the caller to the appropriate department (sales, delivery and returns, account management, or general support).
-- [property-insurance.ts](./property-insurance.ts) - An inbound phone call example (supporting both phone and WebRTC) that uses `DocumentQA` and RAG to answer caller questions about a property insurance policy.
-- [restaurant-waitlist.ts](./restaurant-waitlist.ts) - An inbound phone call example (supporting both phone and WebRTC) where the agent collects caller name, party size, and phone number to add the caller to a restaurant waitlist, then hangs up after confirming the details.
-- [scheduling-outbound.ts](./scheduling-outbound.ts) - An outbound phone call example where the agent calls a dental patient, verifies they are available, and schedules a cleaning appointment by searching available calendar slots using a `DatetimeFilter`.
+- [example.test.ts](./example.test.ts) - Agent testing example demonstrating `agent.test()`, `agent.testRoleplay()`, `agent.patch()`, and `session.evaluate()` for unit testing handlers, scripted conversation flows, LLM-driven roleplay, and natural-language pass/fail evaluation.
+- [help-desk.ts](./help-desk.ts) - An inbound call agent for a furniture retailer that uses `DocumentQA` for RAG-based question answering and `IntentRecognizer` to classify caller intent and route to the appropriate department.
+- [polling-campaign.ts](./polling-campaign.ts) - Attaches a political polling agent to an existing Guava campaign via `attachCampaign()`, uses `reachPerson()` to confirm availability, then conducts a structured poll with text and multiple-choice fields.
+- [property-insurance.ts](./property-insurance.ts) - A simple inbound call agent that uses `DocumentQA` and RAG to answer questions about a property insurance policy.
+- [restaurant-waitlist.ts](./restaurant-waitlist.ts) - An inbound call agent that collects a caller's name, party size, and phone number to add them to a restaurant waitlist using a structured task checklist.
+- [scheduling-outbound.ts](./scheduling-outbound.ts) - An outbound call agent for a dental office that calls patients to schedule appointments, using `reachPerson()` for human detection and `DatetimeFilter` for searchable calendar slot availability.

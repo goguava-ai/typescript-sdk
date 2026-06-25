@@ -20,6 +20,11 @@ import {
 } from "./events.ts";
 import { telemetryClient } from "./telemetry.ts";
 import { GuavaSocket, GuavaSocketClosedError } from "./socket/client.ts";
+import {
+  type ClientMessage as DialerClientMessage,
+  type ServerMessage as DialerServerMessage,
+  decodeServerMessage as decodeDialerServerMessage,
+} from "./guavadialer-events.ts";
 import * as ListenInbound from "./socket/listen-inbound.ts";
 import type { CallInfo } from "./socket/call-info.ts";
 import { TestSession } from "./testing/session.ts";
@@ -352,10 +357,11 @@ export class Agent {
     callId: string,
     initialVariables: Record<string, any> = {},
     testSession?: TestSession,
+    route: string = "v2/connect-call",
   ): Promise<void> {
     const call = await this._initCall(initialVariables);
 
-    const url = new URL(`v2/connect-call/${callId}`, this._client.getWebsocketBase());
+    const url = new URL(`${route}/${callId}`, this._client.getWebsocketBase());
     await using socket = await new GuavaSocket<Command, GuavaEvent | null>(
       `call-connection-${callId}`,
       url.toString(),
@@ -672,6 +678,75 @@ Choose "speak" and provide your next utterance, or choose "hangup" if the conver
     cloned._onSessionEnd = this._onSessionEnd;
     cloned._onDtmf = this._onDtmf;
     return cloned;
+  }
+
+  private async _serveCampaign(campaignCode: string): Promise<void> {
+    const campaignUrl = new URL(`v1/campaigns/${campaignCode}`, this._client.getHttpBase());
+    const campaignResponse = await fetchOrThrow(campaignUrl, {
+      headers: await this._client.headers(),
+    });
+    const campaign = (await campaignResponse.json()) as { id: string; name: string };
+
+    const wsUrl = new URL(`v1/serve-campaign/${campaign.id}`, this._client.getWebsocketBase());
+    this._logger.info("Connecting to campaign '%s' (id: %s).", campaign.name, campaign.id);
+
+    await using socket = await new GuavaSocket<DialerClientMessage, DialerServerMessage>(
+      "serve-campaign",
+      wsUrl.toString(),
+      this._client,
+      (msg) => msg as unknown as Record<string, unknown>,
+      decodeDialerServerMessage,
+    ).connect();
+
+    const activeCalls: Promise<void>[] = [];
+
+    try {
+      for await (const msg of socket) {
+        switch (msg.message_type) {
+          case "listen-started":
+            this._logger.info("Listening for calls on campaign '%s'. Ready.", campaign.name);
+            break;
+          case "initiate-and-assign-call": {
+            const { call_id, contact_data } = msg;
+            const data = contact_data as Record<string, unknown> | null;
+            const logPhone = (data?.phone_number as string | undefined) ?? "?";
+            this._logger.info(
+              "Ready to make call, id %s — initiating call setup and dispatch for contact %s.",
+              call_id,
+              logPhone,
+            );
+            activeCalls.push(
+              (async () => {
+                socket.send({ message_type: "controller-ready", call_id });
+                const variables = (data?.data as Record<string, unknown>) ?? {};
+                await this._attachToCall(call_id, variables, undefined, "v2/connect-campaign-call");
+              })(),
+            );
+            break;
+          }
+        }
+      }
+    } catch (e) {
+      if (!(e instanceof GuavaSocketClosedError)) throw e;
+      this._logger.info("Campaign '%s' disconnected.", campaign.name);
+    }
+
+    await Promise.all(activeCalls);
+  }
+
+  /**
+   * Attach this agent to an active Guava campaign and handle outbound calls.
+   *
+   * Blocks until the campaign connection is closed.
+   *
+   * @param campaignCode - The campaign code (e.g. `gcmp-...`). Create a campaign
+   *   and upload contacts via the Guava dashboard or CLI before calling this.
+   *
+   * @example
+   * await agent.attachCampaign("gcmp-abc123");
+   */
+  async attachCampaign(campaignCode: string): Promise<void> {
+    return this._serveCampaign(campaignCode);
   }
 
   /* ===== Aliases to be removed at some point. ===== */

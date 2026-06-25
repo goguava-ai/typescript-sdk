@@ -5,6 +5,7 @@ const EXAMPLES = {
   "property-insurance": () => import("../examples/property-insurance"),
   "restaurant-waitlist": () => import("../examples/restaurant-waitlist"),
   "help-desk": () => import("../examples/help-desk"),
+  "polling-campaign": () => import("../examples/polling-campaign"),
 };
 
 const exampleName = process.argv[2];

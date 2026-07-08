@@ -561,12 +561,12 @@ export class Agent {
    *   pass/fail criteria, or `session.getTranscript()` to inspect the conversation.
    *
    * @example
-   * const session = await agent.testRoleplay(
+   * const session = await agent.roleplay(
    *   "You are a caller trying to buy a new table.",
    * );
    * assert(session.executedActions.includes("sales"));
    */
-  async testRoleplay(
+  async roleplay(
     roleplayPrompt: string,
     variables: Record<string, any> = {},
   ): Promise<TestSession> {
@@ -630,6 +630,14 @@ Choose "speak" and provide your next utterance, or choose "hangup" if the conver
         }
       }
     }, variables);
+  }
+
+  /** @deprecated Use {@link roleplay} instead. */
+  async testRoleplay(
+    roleplayPrompt: string,
+    variables: Record<string, any> = {},
+  ): Promise<TestSession> {
+    return this.roleplay(roleplayPrompt, variables);
   }
 
   /**

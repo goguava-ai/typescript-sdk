@@ -96,6 +96,7 @@ export const BotSessionEnded = z.object({
     "bot-transfer",
     "voicemail",
   ]),
+  dnc: z.boolean().default(false),
 });
 export type BotSessionEnded = z.infer<typeof BotSessionEnded>;
 

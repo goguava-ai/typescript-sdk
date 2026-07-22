@@ -172,6 +172,13 @@ export class Client {
     return body.webrtc_code;
   }
 
+  async listNumbers(): Promise<{ phoneNumber: string }[]> {
+    const url = new URL("v1/phone-numbers", this.getHttpBase());
+    const response = await fetchOrThrow(url, { headers: await this.headers() });
+    const items = (await response.json()) as { phone_number: string }[];
+    return items.map((item) => ({ phoneNumber: item.phone_number }));
+  }
+
   /**
    * Sends an SMS message from one of your Guava numbers.
    * @param fromNumber - One of your Guava numbers (E.164). Must have SMS configured.

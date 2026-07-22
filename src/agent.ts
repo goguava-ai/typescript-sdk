@@ -31,8 +31,14 @@ import { telemetryClient } from "./telemetry.ts";
 import { runChat } from "./testing/chat.ts";
 import { SessionStarted } from "./testing/protocol.ts";
 import { TestSession } from "./testing/session.ts";
+import * as z from "zod";
 import { fetchOrThrow, getBaseUrl } from "./utils.ts";
 import { runWebrtcHelper } from "./webrtc-helper.ts";
+
+export const _roleplayActionSchema = z.object({
+  action: z.enum(["speak", "hangup"]),
+  utterance: z.string().optional(),
+});
 
 export type { CallInfo } from "./socket/call-info.ts";
 
@@ -57,7 +63,7 @@ export class Agent {
   private _acceptDtmfForNumbers: boolean;
   private _logger: Logger;
 
-  private _client: Client = new Client();
+  _client: Client = new Client();
 
   private _onCallReceived: (callInfo: CallInfo) => Promise<IncomingCallAction> = async () => ({
     action: "accept",
@@ -572,12 +578,12 @@ export class Agent {
    * @description use the Guava API to call out to a number
    */
   async callPhone(
-    fromNumber: string | undefined,
+    fromNumber: string,
     toNumber: string,
     variables: Record<string, any> = {},
   ): Promise<void> {
     const url = new URL("v2/create-outbound", this._client.getHttpBase());
-    if (fromNumber) url.searchParams.set("from_number", fromNumber);
+    url.searchParams.set("from_number", fromNumber);
     url.searchParams.set("to_number", toNumber);
 
     const response = await fetchOrThrow(url, {
@@ -681,16 +687,6 @@ export class Agent {
     roleplayPrompt: string,
     variables: Record<string, any> = {},
   ): Promise<TestSession> {
-    const roleplaySchema = {
-      type: "object",
-      properties: {
-        action: { type: "string", enum: ["speak", "hangup"] },
-        utterance: { type: "string" },
-      },
-      required: ["action"],
-      additionalProperties: false,
-    };
-
     return this.test(async (session) => {
       let snapshotLen = 0;
       try {
@@ -714,8 +710,8 @@ ${transcript || "(The agent has not spoken yet)"}
 
 Choose "speak" and provide your next utterance, or choose "hangup" if the conversation has naturally concluded.`;
 
-          const raw = await _generate(this._client, prompt, roleplaySchema);
-          const action = JSON.parse(raw) as { action: string; utterance?: string };
+          const raw = await _generate(this._client, prompt, z.toJSONSchema(_roleplayActionSchema));
+          const action = _roleplayActionSchema.parse(JSON.parse(raw));
 
           if (action.action === "hangup") {
             this._logger.info("(Roleplay Session) [caller hangs up]");
@@ -803,7 +799,7 @@ Choose "speak" and provide your next utterance, or choose "hangup" if the conver
     return cloned;
   }
 
-  private async _serveCampaign(healthCtx: HealthContext, campaignCode: string): Promise<void> {
+  async _serveCampaign(healthCtx: HealthContext, campaignCode: string): Promise<void> {
     try {
       const campaignUrl = new URL(`v1/campaigns/${campaignCode}`, this._client.getHttpBase());
       const campaignResponse = await fetchOrThrow(campaignUrl, {
@@ -898,11 +894,7 @@ Choose "speak" and provide your next utterance, or choose "hangup" if the conver
   }
 
   /** @deprecated Use {@link callPhone} instead. */
-  async outboundPhone(
-    fromNumber: string | undefined,
-    toNumber: string,
-    variables: Record<string, any> = {},
-  ) {
+  async outboundPhone(fromNumber: string, toNumber: string, variables: Record<string, any> = {}) {
     return this.callPhone(fromNumber, toNumber, variables);
   }
 }

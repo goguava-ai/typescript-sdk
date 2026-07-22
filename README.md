@@ -7,15 +7,25 @@ This library allows you to build Guava voice agents using TypeScript or Javascri
 
 Full documentation for the TypeScript SDK can be found at [https://goguava.ai/docs/](https://goguava.ai/docs/). SDK examples can be found under [./examples/](https://github.com/goguava-ai/typescript-sdk/tree/main/examples).
 
-## Try an Example
+## Authentication
 
-Export two environment variables. You should have received these in your beta invite email.
-```bash
+Log in using the [Guava CLI](https://goguava.ai/docs/quickstart):
+
+```shell
+guava login
+```
+
+Alternatively, provide an API key through an environment variable.
+
+```shell
 $ export GUAVA_API_KEY="..." # Your API key for authentication.
 $ export GUAVA_AGENT_NUMBER="..." # A phone number for your agent to use.
 ```
 
+## Try an Example
+
 Run an outbound phone call example using `npx`. Replace the phone number with your own and your agent will call you.
+
 ```bash
 $ npx @guava-ai/guava-sdk@latest scheduling-outbound +15556667777 # Your agent will call this number.
 ```

@@ -1,3 +1,4 @@
+import * as z from "zod";
 import type { SuggestedAction } from "../agent.ts";
 import { Client } from "../client.ts";
 import { telemetryClient } from "../telemetry.ts";
@@ -81,15 +82,10 @@ export class DocumentQA {
   }
 }
 
-const _filterSchema = {
-  type: "object",
-  properties: {
-    matching_appointments: { type: "array", items: { type: "string" } },
-    other_appointments: { type: "array", items: { type: "string" } },
-  },
-  required: ["matching_appointments", "other_appointments"],
-  additionalProperties: false,
-};
+export const _filterSchema = z.object({
+  matching_appointments: z.array(z.string()),
+  other_appointments: z.array(z.string()),
+});
 
 @telemetryClient.trackClass()
 export class DatetimeFilter {
@@ -122,11 +118,8 @@ ${this._slotsStr}
 
 Return at most ${maxResults} items per list.`;
 
-    const text = await _generate(this._client, prompt, _filterSchema);
-    const result = JSON.parse(text) as {
-      matching_appointments: string[];
-      other_appointments: string[];
-    };
+    const text = await _generate(this._client, prompt, z.toJSONSchema(_filterSchema));
+    const result = _filterSchema.parse(JSON.parse(text));
     return [
       result.matching_appointments.slice(0, maxResults),
       result.other_appointments.slice(0, maxResults),
@@ -134,30 +127,29 @@ Return at most ${maxResults} items per list.`;
   }
 }
 
+export function _makeIntentSchema(choiceList: [string, ...string[]]) {
+  return z
+    .object({
+      possible_matches: z
+        .array(z.enum(choiceList))
+        .describe(
+          "Choices that could match the caller's intent, ordered by likelihood. Include all plausible matches.",
+        ),
+    })
+    .meta({ title: "ChoiceModel" });
+}
+
 @telemetryClient.trackClass()
 export class IntentRecognizer {
   private readonly _client: Client;
   private readonly _intentChoices: string[] | Record<string, string>;
-  private readonly _schema: object;
+  private readonly _schema: ReturnType<typeof _makeIntentSchema>;
 
   constructor(intentChoices: string[] | Record<string, string>) {
     this._client = new Client();
     this._intentChoices = intentChoices;
     const choiceList = Array.isArray(intentChoices) ? intentChoices : Object.keys(intentChoices);
-    this._schema = {
-      type: "object",
-      title: "ChoiceModel",
-      properties: {
-        possible_matches: {
-          type: "array",
-          items: { type: "string", enum: choiceList },
-          description:
-            "Choices that could match the caller's intent, ordered by likelihood. Include all plausible matches.",
-        },
-      },
-      required: ["possible_matches"],
-      additionalProperties: false,
-    };
+    this._schema = _makeIntentSchema(choiceList as [string, ...string[]]);
   }
 
   async classify(intent: string): Promise<SuggestedAction[] | null> {
@@ -183,8 +175,8 @@ Rules:
       prompt += `\n\nDetailed descriptions of each choice:\n  ${descriptionString}`;
     }
 
-    const text = await _generate(this._client, prompt, this._schema);
-    const keys = (JSON.parse(text) as { possible_matches: string[] }).possible_matches;
+    const text = await _generate(this._client, prompt, z.toJSONSchema(this._schema));
+    const { possible_matches: keys } = this._schema.parse(JSON.parse(text));
 
     if (!keys.length) return null;
 

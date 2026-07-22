@@ -10,7 +10,7 @@ import { agent } from "@guava-ai/guava-sdk/examples/help-desk";
 describe("HelpDeskAgent", () => {
   test("handler unit test - new purchase routes to sales", async () => {
     const suggestion = await agent.handlers.onActionRequest(new MockCall(), "make a new purchase");
-    expect(suggestion).toHaveProperty("key", "sales");
+    expect(suggestion).toContainEqual({ key: "sales" });
   });
 
   test("new purchase routes to sales", async () => {

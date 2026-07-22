@@ -7,7 +7,7 @@ import { _generate } from "../helpers/llm.ts";
 
 type SessionEvent = InjectASR | BotTTS;
 
-const _evalResponseSchema = z.object({
+export const _evalResponseSchema = z.object({
   results: z.array(
     z.object({
       passed: z.boolean(),
@@ -166,28 +166,8 @@ ${transcript || "(empty — no conversation occurred)"}
 Criteria:
 ${criteriaList}`;
 
-    const evalSchema = {
-      type: "object",
-      properties: {
-        results: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              passed: { type: "boolean" },
-              reasoning: { type: "string" },
-            },
-            required: ["passed"],
-            additionalProperties: false,
-          },
-        },
-      },
-      required: ["results"],
-      additionalProperties: false,
-    };
-
     const evalResponse = _evalResponseSchema.parse(
-      JSON.parse(await _generate(this._client, prompt, evalSchema)),
+      JSON.parse(await _generate(this._client, prompt, z.toJSONSchema(_evalResponseSchema))),
     );
 
     if (evalResponse.results.length !== allCriteria.length) {

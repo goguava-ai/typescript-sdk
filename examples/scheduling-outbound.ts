@@ -1,6 +1,7 @@
 import * as guava from "@guava-ai/guava-sdk";
 import { DatetimeFilter } from "@guava-ai/guava-sdk/helpers";
 import { mockAppointmentsForFuture } from "@guava-ai/guava-sdk/example-data";
+import { getAgentNumber } from "@guava-ai/guava-sdk/example-utils";
 
 const agent = new guava.Agent({
   organization: "Bright Smile Dental",
@@ -33,7 +34,7 @@ agent.onReachPerson(async (call: guava.Call, outcome: string) => {
       ],
     });
   } else {
-    await call.hangup("Apologize for your mistake and hang up the call.");
+    await call.hangup("Appropriately end the call.");
   }
 });
 
@@ -56,7 +57,7 @@ export async function run(args: string[]) {
     process.exit(1);
   }
 
-  agent.callPhone(process.env.GUAVA_AGENT_NUMBER, toNumber, {
+  agent.callPhone(await getAgentNumber(), toNumber, {
     patientName: patientName,
   });
 }

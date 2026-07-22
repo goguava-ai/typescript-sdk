@@ -33,6 +33,29 @@ export type ReachPersonOutcome = {
   nextActionPreview?: string;
 };
 
+export const DEFAULT_REACH_PERSON_OUTCOMES: ReachPersonOutcome[] = [
+  { key: "available", description: "The intended contact is confirmed on the line." },
+  {
+    key: "unavailable",
+    description:
+      "The contact could not be reached. A third party, gatekeeper, or IVR was unable to transfer the call to the contact.",
+  },
+  { key: "voicemail", description: "An answering machine or voicemail system was reached." },
+  { key: "wrong_number", description: "The number does not reach the intended contact." },
+  {
+    key: "do_not_contact",
+    description: "The person on the line has indicated this number should not be called.",
+  },
+];
+
+function voicemailHangupInstruction(): string {
+  return "DO NOT leave a message. REMAIN SILENT AND HANG UP WITHOUT RESPONDING.";
+}
+
+function voicemailMessageInstruction(message: string): string {
+  return `Say this message VERBATIM: "${message}" Then hang up.`;
+}
+
 @telemetryClient.trackClass()
 export class Call {
   private _callId: string;
@@ -242,19 +265,38 @@ export class Call {
 
   async reachPerson(
     contactFullName: string,
-    options: { outcomes?: ReachPersonOutcome[]; greeting?: string } = {},
+    options: {
+      outcomes?: ReachPersonOutcome[];
+      greeting?: string;
+      voicemailMessage?: string;
+      voicemailHangup?: boolean;
+    } = {},
   ) {
-    const outcomes = options.outcomes ?? [
-      { key: "available", description: "The contact is available to speak." },
-      {
-        key: "unavailable",
-        description:
-          "The contact is not available to speak. This includes reaching a wrong number.",
-      },
-    ];
+    if ((await this.getVariable("_voicemail_handler")) === "set_voicemail_action") {
+      throw new Error(
+        "Cannot call reachPerson() after setVoicemailAction(). " +
+          "Use the voicemailMessage or voicemailHangup parameters on reachPerson() instead.",
+      );
+    }
+    await this.setVariable("_voicemail_handler", "reach_person");
+
+    if (options.voicemailMessage && options.voicemailHangup) {
+      throw new Error("Cannot specify both 'voicemailMessage' and 'voicemailHangup'.");
+    }
+
+    const outcomes = options.outcomes ?? DEFAULT_REACH_PERSON_OUTCOMES;
+
+    let voicemailRule: string;
+    if (options.voicemailHangup) {
+      voicemailRule = voicemailHangupInstruction();
+    } else if (options.voicemailMessage) {
+      voicemailRule = voicemailMessageInstruction(options.voicemailMessage);
+    } else {
+      voicemailRule = "Leave an appropriate voicemail message.";
+    }
 
     const availabilityDescription =
-      `The availability of ${contactFullName}` +
+      `The availability of ${contactFullName}.` +
       (outcomes.some((o) => o.description)
         ? "\nDetailed descriptions of each choice:\n" +
           outcomes
@@ -266,7 +308,7 @@ export class Call {
     const checklist: (FieldItem | SayItem | string)[] = [
       options.greeting !== undefined
         ? Say(options.greeting)
-        : `Greet the person who answered the phone. Notify them who you are calling on behalf of and the purpose of the call. Ask to speak with ${contactFullName}`,
+        : `Greet the person, IVR, or system who answered the phone. Notify them who you are calling on behalf of and the purpose of the call. Ask to speak with ${contactFullName}. Do not greet if you detect an answering machine or voicemail system.`,
       {
         item_type: "field",
         key: "contact_availability",
@@ -281,38 +323,51 @@ export class Call {
       .map((o) => `- ${o.key} → ${o.nextActionPreview}`);
     if (nextActionLines.length > 0) {
       checklist.push(
-        "If a next action is defined below for the value of `contact_availability`, briefly ask the contact to wait just a second while you perform it.\n" +
+        "If a next action is defined below for the recorded value of `contact_availability`, briefly let the contact know while you perform it.\n" +
           nextActionLines.join("\n"),
       );
     }
 
     const objective = `\
 OBJECTIVE:
-Your goal is to reach ${contactFullName} and determine their availability to proceed with this call.
+Your goal is to reach ${contactFullName} and confirm they are on the line.
 
 RULES:
-1. If the initial respondent is NOT ${contactFullName}:
-   - Politely ask to speak with ${contactFullName}
-   - Wait to be transferred or for ${contactFullName} to come to the phone
-2. Once you have ${contactFullName} on the line:
+1. If someone other than ${contactFullName} answers - including a person or IVR:
+   - Politely ask to speak with ${contactFullName}, or navigate menus and prompts to reach them.
+   - Wait to be transferred or for ${contactFullName} to come to the phone.
+   - If ${contactFullName} cannot be reached, record \`contact_availability\` appropriately.
+2. Once ${contactFullName} is confirmed on the line:
    - Briefly restate who you are and the purpose of your call
-   - Determine and record their current availability status
-3. DO NOT hang up the call under any circumstances, unless it's a wrong number.
+   - Record their availability as available, or equivalent, in \`contact_availability\`.
+3. If it is clearly a wrong number or you have been asked not to call, politely end the call and hang up.
+4. If you reach an answering machine or voicemail: ${voicemailRule}
+`;
 
+    const completionCriteria = `\
 TASK COMPLETION REQUIREMENTS:
-- The availability of ${contactFullName} must be recorded in \`contact_availability\`.`;
+- The availability of ${contactFullName} must be recorded in \`contact_availability\`.
+`;
 
-    await this.setTask({ taskId: "reach_person", objective, checklist });
+    await this.setTask({ taskId: "reach_person", objective, checklist, completionCriteria });
   }
 
   async setVoicemailAction(action: { hangup: true } | { message: string }) {
+    if ((await this.getVariable("_voicemail_handler")) === "reach_person") {
+      throw new Error(
+        "Cannot call setVoicemailAction() after reachPerson(). " +
+          "Use the voicemailMessage or voicemailHangup parameters on reachPerson() instead.",
+      );
+    }
+    await this.setVariable("_voicemail_handler", "set_voicemail_action");
+
     if ("hangup" in action) {
       await this.sendInstruction(
-        "If you encounter an answering machine, DO NOT leave a message. REMAIN SILENT AND HANG UP WITHOUT RESPONDING. You should only do this when it's clear you are unable to reach the person.",
+        `If you encounter an answering machine, ${voicemailHangupInstruction()} You should only do this when it's clear you are unable to reach the person.`,
       );
     } else {
       await this.sendInstruction(
-        `If you encounter an answering machine, say this message VERBATIM: ${action.message}. You should only leave this message if it's clear you are unable to reach the person.`,
+        `If you encounter an answering machine, ${voicemailMessageInstruction(action.message)} You should only do this when it's clear you are unable to reach the person.`,
       );
     }
   }

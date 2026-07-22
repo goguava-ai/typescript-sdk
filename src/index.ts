@@ -1,10 +1,12 @@
 export { Client, type InboundConnection } from "./client.ts";
+export { Runner } from "./runner.ts";
 export type { SmsMessage } from "./sms.ts";
 export { CallController, type TaskObjective } from "./call-controller.ts";
 export { Say, Field } from "./action-item.ts";
 export { Logger, getConsoleLogger, getDefaultLogger } from "./logging.ts";
 export { Agent, CallInfo } from "./agent.ts";
-export { Call } from "./call.ts";
+export { Call, DEFAULT_REACH_PERSON_OUTCOMES } from "./call.ts";
+export type { ReachPersonOutcome } from "./call.ts";
 export type { BotSessionEnded, TerminationReason, DTMFPressedEvent, DTMFDigit } from "./events.ts";
 export { TestSession } from "./testing/session.ts";
 export { MockCall } from "./testing/mocks.ts";

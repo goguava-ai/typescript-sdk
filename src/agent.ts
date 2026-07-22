@@ -4,6 +4,7 @@ import {
   AnswerQuestionCommand,
   ChoiceResultCommand,
   type Command,
+  ExpertErrorCommand,
   RegisteredHooksCommand,
 } from "./commands.ts";
 import {
@@ -13,6 +14,7 @@ import {
   type DTMFPressedEvent,
   type EscalateEvent,
   type GuavaEvent,
+  type OutboundCallFailed,
   decodeEventDict,
 } from "./events.ts";
 import {
@@ -91,6 +93,7 @@ export class Agent {
   private _onSessionEnd?: (call: Call, event: BotSessionEnded) => Promise<void>;
   private _onEscalate?: (call: Call, event: EscalateEvent) => Promise<void>;
   private _onDtmf?: (call: Call, event: DTMFPressedEvent) => Promise<void>;
+  private _onOutboundFailed?: (event: OutboundCallFailed) => Promise<void>;
 
   constructor(args?: {
     name?: string;
@@ -194,6 +197,10 @@ export class Agent {
     this._onDtmf = callback;
   }
 
+  onOutboundFailed(callback: (event: OutboundCallFailed) => Promise<void>): void {
+    this._onOutboundFailed = callback;
+  }
+
   get handlers() {
     return {
       onCallReceived: (callInfo: CallInfo) => this._onCallReceived(callInfo),
@@ -278,14 +285,37 @@ export class Agent {
     await runWebrtcHelper(webrtcCode, getBaseUrl());
   }
 
+  private async _invokeHandler(
+    call: Call,
+    name: string,
+    informAgent: boolean,
+    handler: () => Promise<void>,
+  ): Promise<void> {
+    try {
+      await handler();
+    } catch (err) {
+      this._logger.error(`An error occurred in the ${name} handler.`, err);
+      if (informAgent) {
+        await call.sendCommand(ExpertErrorCommand, {
+          command_type: "expert-error",
+          message: `The expert encountered an error while processing ${name}`,
+        });
+      }
+    }
+  }
+
   private async _dispatchEvent(call: Call, event: GuavaEvent, testSession?: TestSession) {
     if (event.event_type === "caller-speech") {
       if (this._onCallerSpeech !== undefined) {
-        await this._onCallerSpeech(call, event);
+        await this._invokeHandler(call, "onCallerSpeech", false, () =>
+          this._onCallerSpeech!(call, event),
+        );
       }
     } else if (event.event_type === "agent-speech") {
       if (this._onAgentSpeech !== undefined) {
-        await this._onAgentSpeech(call, event);
+        await this._invokeHandler(call, "onAgentSpeech", false, () =>
+          this._onAgentSpeech!(call, event),
+        );
       }
     } else if (event.event_type === "task-done") {
       const errors: string[] = [];
@@ -304,17 +334,28 @@ export class Agent {
         await call.retryTask(errors.join(" "));
       } else {
         this._logger.info(`Task ${event.task_id} completed.`);
-        if (this._onTaskCompleteGeneric !== undefined) {
-          await this._onTaskCompleteGeneric(call, event.task_id);
-        } else if (event.task_id in this._onTaskCompleteHandlers) {
-          await this._onTaskCompleteHandlers[event.task_id](call);
-        } else {
-          this._logger.warn(`No handler registered for completion of task '${event.task_id}'`);
+        try {
+          if (this._onTaskCompleteGeneric !== undefined) {
+            await this._onTaskCompleteGeneric(call, event.task_id);
+          } else if (event.task_id in this._onTaskCompleteHandlers) {
+            await this._onTaskCompleteHandlers[event.task_id](call);
+          } else {
+            this._logger.warn(`No handler registered for completion of task '${event.task_id}'`);
+          }
+        } catch (err) {
+          this._logger.error(
+            `An error occurred in the on_task_complete('${event.task_id}') handler.`,
+            err,
+          );
+          await call.sendCommand(ExpertErrorCommand, {
+            command_type: "expert-error",
+            message: `The expert encountered an error while processing on_task_complete('${event.task_id}') - the task has failed.`,
+          });
         }
       }
     } else if (event.event_type === "agent-question") {
+      this._logger.info(`Received question from bot: ${event.question}`);
       if (this._onQuestion !== undefined) {
-        this._logger.info(`Received question from bot: ${event.question}`);
         let answer: string;
         try {
           answer = await this._onQuestion(call, event.question);
@@ -339,6 +380,9 @@ export class Agent {
       }
     } else if (event.event_type === "action-item-done") {
       call._fieldValues[event.key] = event.payload;
+      if (event.key && event.payload) {
+        this._logger.info(`Field ${event.key} updated.`);
+      }
     } else if (event.event_type === "choice-query") {
       this._logger.info(`Received search query for field '${event.field_key}': ${event.query}`);
       const handler = this._searchQueryHandlers[event.field_key];
@@ -346,25 +390,49 @@ export class Agent {
         this._logger.warn(
           `Search query arrived for field '${event.field_key}' with no handler attached.`,
         );
-      } else {
-        const [matchedChoices, otherChoices] = await handler(call, event.query);
-        await call.sendCommand(ChoiceResultCommand, {
-          command_type: "choice-query-result",
-          field_key: event.field_key,
-          query_id: event.query_id,
-          matched_choices: matchedChoices,
-          other_choices: otherChoices,
+        await call.sendCommand(ExpertErrorCommand, {
+          command_type: "expert-error",
+          message: `The expert failed to handle on_search_query('${event.field_key}'). No results will be forthcoming.`,
         });
+      } else {
+        try {
+          const [matchedChoices, otherChoices] = await handler(call, event.query);
+          await call.sendCommand(ChoiceResultCommand, {
+            command_type: "choice-query-result",
+            field_key: event.field_key,
+            query_id: event.query_id,
+            matched_choices: matchedChoices,
+            other_choices: otherChoices,
+          });
+        } catch (err) {
+          this._logger.error(
+            `An error occurred in the on_search_query('${event.field_key}') handler.`,
+            err,
+          );
+          await call.sendCommand(ExpertErrorCommand, {
+            command_type: "expert-error",
+            message: `The expert encountered an error while processing the on_search_query('${event.field_key}') handler. No results will be forthcoming.`,
+          });
+        }
       }
     } else if (event.event_type === "action-request") {
       this._logger.info(`Received action request ${event.intent_id}: ${event.intent_summary}`);
       let suggestions: SuggestedAction[] = [];
       if (this._onActionRequested !== undefined) {
-        const result = await this._onActionRequested(call, event.intent_summary);
-        if (Array.isArray(result)) {
-          suggestions = result;
-        } else if (result !== null && result !== undefined) {
-          suggestions = [result];
+        try {
+          const result = await this._onActionRequested(call, event.intent_summary);
+          if (Array.isArray(result)) {
+            suggestions = result;
+          } else if (result !== null && result !== undefined) {
+            suggestions = [result];
+          }
+        } catch (err) {
+          this._logger.error("An error occurred in the onActionRequest handler.", err);
+          await call.sendCommand(ExpertErrorCommand, {
+            command_type: "expert-error",
+            message:
+              "The expert encountered an error while processing the on_action_request handler.",
+          });
         }
       }
       await call.sendCommand(ActionSuggestionCommand, {
@@ -384,7 +452,18 @@ export class Agent {
         onActionFunc = () => this._onActionHandlers[event.action_key](call);
       }
       if (onActionFunc !== undefined) {
-        await onActionFunc();
+        try {
+          await onActionFunc();
+        } catch (err) {
+          this._logger.error(
+            `An error occurred in the on_action('${event.action_key}') handler.`,
+            err,
+          );
+          await call.sendCommand(ExpertErrorCommand, {
+            command_type: "expert-error",
+            message: `The expert encountered an error while processing the on_action('${event.action_key}') handler.`,
+          });
+        }
       } else {
         this._logger.warn(`No handler registered for action '${event.action_key}'`);
       }
@@ -393,14 +472,18 @@ export class Agent {
       if (testSession) {
         testSession.terminationReason = event.termination_reason;
       }
-      await this._onSessionEnd?.(call, event);
+      if (this._onSessionEnd !== undefined) {
+        await this._invokeHandler(call, "onSessionEnd", false, () =>
+          this._onSessionEnd!(call, event),
+        );
+      }
     } else if (event.event_type === "dtmf") {
       if (this._onDtmf !== undefined) {
-        await this._onDtmf(call, event);
+        await this._invokeHandler(call, "onDtmf", false, () => this._onDtmf!(call, event));
       }
     } else if (event.event_type === "escalate") {
       if (this._onEscalate !== undefined) {
-        await this._onEscalate(call, event);
+        await this._invokeHandler(call, "onEscalate", true, () => this._onEscalate!(call, event));
       } else if (event.requested_by === "agent") {
         await call.sendInstruction(
           "No escalation target set. Apologize for not being able to help, ask them to try calling another time, and hang up the call immediately.",
@@ -408,6 +491,13 @@ export class Agent {
       } else {
         await call.sendInstruction(
           "Let them know there are no representatives available to take their call. Ask them if they would prefer to continue or to call another time.",
+        );
+      }
+    } else if (event.event_type === "outbound-call-failed") {
+      this._logger.error(`Outbound call failed: ${event.error_reason}`);
+      if (this._onOutboundFailed !== undefined) {
+        await this._invokeHandler(call, "onOutboundFailed", false, () =>
+          this._onOutboundFailed!(event),
         );
       }
     } else if (event.event_type === "error") {
@@ -796,6 +886,7 @@ Choose "speak" and provide your next utterance, or choose "hangup" if the conver
     cloned._onSessionEnd = this._onSessionEnd;
     cloned._onEscalate = this._onEscalate;
     cloned._onDtmf = this._onDtmf;
+    cloned._onOutboundFailed = this._onOutboundFailed;
     return cloned;
   }
 

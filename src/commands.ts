@@ -133,6 +133,12 @@ export const SetAgentDTMFCommand = z.strictObject({
 });
 export type SetAgentDTMFCommand = z.input<typeof SetAgentDTMFCommand>;
 
+export const ExpertErrorCommand = z.strictObject({
+  command_type: z.literal("expert-error"),
+  message: z.string(),
+});
+export type ExpertErrorCommand = z.input<typeof ExpertErrorCommand>;
+
 export const AnyCommand = z.union([
   StartOutboundCallCommand,
   ListenInboundCommand,
@@ -150,6 +156,7 @@ export const AnyCommand = z.union([
   ActionSuggestionCommand,
   RetryTaskCommand,
   SetAgentDTMFCommand,
+  ExpertErrorCommand,
 ]);
 export type Command = z.input<typeof AnyCommand>;
 

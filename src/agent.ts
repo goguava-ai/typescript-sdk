@@ -1,36 +1,38 @@
 import WebSocket from "ws";
-import { Call, Client } from "./index.ts";
-import { getDefaultLogger, type Logger } from "./logging.ts";
-import { getBaseUrl, fetchOrThrow } from "./utils.ts";
-import { runWebrtcHelper } from "./webrtc-helper.ts";
 import {
+  ActionSuggestionCommand,
   AnswerQuestionCommand,
   ChoiceResultCommand,
-  RegisteredHooksCommand,
-  ActionSuggestionCommand,
   type Command,
+  RegisteredHooksCommand,
 } from "./commands.ts";
 import {
-  type GuavaEvent,
-  type CallerSpeechEvent,
   type AgentSpeechEvent,
   type BotSessionEnded,
+  type CallerSpeechEvent,
   type DTMFPressedEvent,
+  type EscalateEvent,
+  type GuavaEvent,
   decodeEventDict,
 } from "./events.ts";
-import { telemetryClient } from "./telemetry.ts";
-import { GuavaSocket, GuavaSocketClosedError } from "./socket/client.ts";
 import {
   type ClientMessage as DialerClientMessage,
   type ServerMessage as DialerServerMessage,
   decodeServerMessage as decodeDialerServerMessage,
 } from "./guavadialer-events.ts";
-import * as ListenInbound from "./socket/listen-inbound.ts";
-import type { CallInfo } from "./socket/call-info.ts";
-import { TestSession } from "./testing/session.ts";
-import { SessionStarted } from "./testing/protocol.ts";
-import { runChat } from "./testing/chat.ts";
+import { HealthContext, getHealthServer } from "./health.ts";
 import { _generate } from "./helpers/llm.ts";
+import { Call, Client } from "./index.ts";
+import { type Logger, getDefaultLogger } from "./logging.ts";
+import type { CallInfo } from "./socket/call-info.ts";
+import { GuavaSocket, GuavaSocketClosedError } from "./socket/client.ts";
+import * as ListenInbound from "./socket/listen-inbound.ts";
+import { telemetryClient } from "./telemetry.ts";
+import { runChat } from "./testing/chat.ts";
+import { SessionStarted } from "./testing/protocol.ts";
+import { TestSession } from "./testing/session.ts";
+import { fetchOrThrow, getBaseUrl } from "./utils.ts";
+import { runWebrtcHelper } from "./webrtc-helper.ts";
 
 export type { CallInfo } from "./socket/call-info.ts";
 
@@ -41,13 +43,18 @@ export interface SuggestedAction {
   description?: string;
 }
 
-export type InboundConnection = { agent_number: string } | { webrtc_code: string };
+export type InboundConnection =
+  | { agent_number: string }
+  | { webrtc_code: string }
+  | { sip_code: string };
 
 @telemetryClient.trackClass()
 export class Agent {
   private _name?: string;
   private _organization?: string;
   private _purpose?: string;
+  private _voice?: string;
+  private _acceptDtmfForNumbers: boolean;
   private _logger: Logger;
 
   private _client: Client = new Client();
@@ -68,16 +75,29 @@ export class Agent {
   private _onActionRequested?: (
     call: Call,
     intentSummary: string,
-  ) => Promise<SuggestedAction | undefined>;
+  ) => Promise<SuggestedAction | SuggestedAction[] | null | undefined>;
   private _onActionGeneric?: (call: Call, actionKey: string) => Promise<void>;
   private _onActionHandlers: Record<string, (call: Call) => Promise<void>> = {};
+  private _onValidateHandlers: Record<
+    string,
+    (call: Call, value: unknown) => Promise<true | [false, string]>
+  > = {};
   private _onSessionEnd?: (call: Call, event: BotSessionEnded) => Promise<void>;
+  private _onEscalate?: (call: Call, event: EscalateEvent) => Promise<void>;
   private _onDtmf?: (call: Call, event: DTMFPressedEvent) => Promise<void>;
 
-  constructor(args?: { name?: string; organization?: string; purpose?: string }) {
+  constructor(args?: {
+    name?: string;
+    organization?: string;
+    purpose?: string;
+    voice?: string;
+    acceptDtmf?: boolean;
+  }) {
     this._name = args?.name;
     this._organization = args?.organization;
     this._purpose = args?.purpose;
+    this._voice = args?.voice;
+    this._acceptDtmfForNumbers = args?.acceptDtmf ?? true;
     this._logger = getDefaultLogger();
   }
 
@@ -117,6 +137,13 @@ export class Agent {
     }
   }
 
+  onValidate(
+    fieldKey: string,
+    callback: (call: Call, value: unknown) => Promise<true | [false, string]>,
+  ): void {
+    this._onValidateHandlers[fieldKey] = callback;
+  }
+
   onSearchQuery(
     fieldKey: string,
     callback: (call: Call, query: string) => Promise<[string[], string[]]>,
@@ -125,7 +152,10 @@ export class Agent {
   }
 
   onActionRequest(
-    callback: (call: Call, intentSummary: string) => Promise<SuggestedAction | undefined>,
+    callback: (
+      call: Call,
+      intentSummary: string,
+    ) => Promise<SuggestedAction | SuggestedAction[] | null | undefined>,
   ): void {
     this._onActionRequested = callback;
   }
@@ -148,6 +178,10 @@ export class Agent {
 
   onSessionEnd(callback: (call: Call, event: BotSessionEnded) => Promise<void>): void {
     this._onSessionEnd = callback;
+  }
+
+  onEscalate(callback: (call: Call, event: EscalateEvent) => Promise<void>): void {
+    this._onEscalate = callback;
   }
 
   onDtmf(callback: (call: Call, event: DTMFPressedEvent) => Promise<void>): void {
@@ -208,7 +242,9 @@ export class Agent {
   }
 
   async listenPhone(phoneNumber: string): Promise<void> {
-    return this._listenInbound({ agent_number: phoneNumber });
+    const healthCtx = new HealthContext();
+    await using _server = await getHealthServer(healthCtx);
+    return this._listenInbound(healthCtx, { agent_number: phoneNumber });
   }
 
   async listenWebrtc(webrtcCode?: string): Promise<void> {
@@ -216,12 +252,21 @@ export class Agent {
       this._logger.info("No WebRTC code provided. Creating a temporary one.");
       webrtcCode = await this._client.createWebrtcAgent(3600);
     }
-    return this._listenInbound({ webrtc_code: webrtcCode });
+    const healthCtx = new HealthContext();
+    await using _server = await getHealthServer(healthCtx);
+    return this._listenInbound(healthCtx, { webrtc_code: webrtcCode });
+  }
+
+  async listenSip(sipCode: string): Promise<void> {
+    const healthCtx = new HealthContext();
+    await using _server = await getHealthServer(healthCtx);
+    return this._listenInbound(healthCtx, { sip_code: sipCode });
   }
 
   async callLocal(): Promise<void> {
     const webrtcCode = await this._client.createWebrtcAgent(300);
-    this._listenInbound({ webrtc_code: webrtcCode }).catch((err) => {
+    // No health-server for call_local.
+    this._listenInbound(new HealthContext(), { webrtc_code: webrtcCode }).catch((err) => {
       this._logger.error("Listen loop error: %s", err);
     });
     await runWebrtcHelper(webrtcCode, getBaseUrl());
@@ -237,13 +282,29 @@ export class Agent {
         await this._onAgentSpeech(call, event);
       }
     } else if (event.event_type === "task-done") {
-      this._logger.info(`Task ${event.task_id} completed.`);
-      if (this._onTaskCompleteGeneric !== undefined) {
-        await this._onTaskCompleteGeneric(call, event.task_id);
-      } else if (event.task_id in this._onTaskCompleteHandlers) {
-        await this._onTaskCompleteHandlers[event.task_id](call);
+      const errors: string[] = [];
+      for (const fieldKey of call._fieldKeysByTaskId[event.task_id] ?? []) {
+        const handler = this._onValidateHandlers[fieldKey];
+        if (handler) {
+          const result = await handler(call, await call.getField(fieldKey));
+          if (result !== true) {
+            const [, error] = result;
+            errors.push(error);
+          }
+        }
+      }
+
+      if (errors.length > 0) {
+        await call.retryTask(errors.join(" "));
       } else {
-        this._logger.warn(`No handler registered for completion of task '${event.task_id}'`);
+        this._logger.info(`Task ${event.task_id} completed.`);
+        if (this._onTaskCompleteGeneric !== undefined) {
+          await this._onTaskCompleteGeneric(call, event.task_id);
+        } else if (event.task_id in this._onTaskCompleteHandlers) {
+          await this._onTaskCompleteHandlers[event.task_id](call);
+        } else {
+          this._logger.warn(`No handler registered for completion of task '${event.task_id}'`);
+        }
       }
     } else if (event.event_type === "agent-question") {
       if (this._onQuestion !== undefined) {
@@ -291,15 +352,19 @@ export class Agent {
       }
     } else if (event.event_type === "action-request") {
       this._logger.info(`Received action request ${event.intent_id}: ${event.intent_summary}`);
-      let suggestion: SuggestedAction | undefined;
+      let suggestions: SuggestedAction[] = [];
       if (this._onActionRequested !== undefined) {
-        suggestion = await this._onActionRequested(call, event.intent_summary);
+        const result = await this._onActionRequested(call, event.intent_summary);
+        if (Array.isArray(result)) {
+          suggestions = result;
+        } else if (result !== null && result !== undefined) {
+          suggestions = [result];
+        }
       }
       await call.sendCommand(ActionSuggestionCommand, {
         command_type: "action-suggestion",
         intent_id: event.intent_id,
-        action_key: suggestion?.key ?? null,
-        action_description: suggestion?.description ?? "",
+        actions: suggestions.map((s) => ({ key: s.key, description: s.description ?? "" })),
       });
     } else if (event.event_type === "execute-action") {
       this._logger.info(`Executing action '${event.action_key}'`);
@@ -327,6 +392,18 @@ export class Agent {
       if (this._onDtmf !== undefined) {
         await this._onDtmf(call, event);
       }
+    } else if (event.event_type === "escalate") {
+      if (this._onEscalate !== undefined) {
+        await this._onEscalate(call, event);
+      } else if (event.requested_by === "agent") {
+        await call.sendInstruction(
+          "No escalation target set. Apologize for not being able to help, ask them to try calling another time, and hang up the call immediately.",
+        );
+      } else {
+        await call.sendInstruction(
+          "Let them know there are no representatives available to take their call. Ask them if they would prefer to continue or to call another time.",
+        );
+      }
     } else if (event.event_type === "error") {
       this._logger.error(`The Guava agent reported an error: ${event.content}`);
     } else if (event.event_type === "warning") {
@@ -334,18 +411,25 @@ export class Agent {
     }
   }
 
-  async _initCall(variables: Record<string, any> = {}): Promise<Call> {
-    const call = new Call(variables);
+  async _initCall(
+    callId: string,
+    callInfo: CallInfo,
+    variables: Record<string, any> = {},
+  ): Promise<Call> {
+    const call = new Call(callId, callInfo, variables);
     await call.setPersona({
       agentName: this._name,
       agentPurpose: this._purpose,
       organizationName: this._organization,
+      voice: this._voice,
     });
     await call.sendCommand(RegisteredHooksCommand, {
       command_type: "registered-hooks",
       has_on_question: this._onQuestion !== undefined,
       has_on_intent: false,
       has_on_action_requested: this._onActionRequested !== undefined,
+      has_on_escalate: this._onEscalate !== undefined,
+      accept_dtmf_for_numbers: this._acceptDtmfForNumbers,
     });
     if (this._onCallStart !== undefined) {
       await this._onCallStart(call);
@@ -355,11 +439,12 @@ export class Agent {
 
   async _attachToCall(
     callId: string,
+    callInfo: CallInfo,
     initialVariables: Record<string, any> = {},
     testSession?: TestSession,
     route: string = "v2/connect-call",
   ): Promise<void> {
-    const call = await this._initCall(initialVariables);
+    const call = await this._initCall(callId, callInfo, initialVariables);
 
     const url = new URL(`${route}/${callId}`, this._client.getWebsocketBase());
     await using socket = await new GuavaSocket<Command, GuavaEvent | null>(
@@ -393,63 +478,76 @@ export class Agent {
     }
   }
 
-  async _listenInbound(conn: InboundConnection): Promise<void> {
+  async _listenInbound(healthCtx: HealthContext, conn: InboundConnection): Promise<void> {
     const url = new URL("v2/listen-inbound", this._client.getWebsocketBase());
     if ("agent_number" in conn) {
       url.searchParams.set("phone_number", conn.agent_number);
-    } else {
+    } else if ("webrtc_code" in conn) {
       url.searchParams.set("webrtc_code", conn.webrtc_code);
+    } else {
+      url.searchParams.set("sip_code", conn.sip_code);
     }
 
-    await using socket = await new GuavaSocket<
-      ListenInbound.ClientMessage,
-      ListenInbound.ServerMessage
-    >(
-      "listen-inbound",
-      url.toString(),
-      this._client,
-      (msg) => msg as unknown as Record<string, unknown>,
-      ListenInbound.decodeServerMessage,
-    ).connect();
-
     try {
-      for await (const msg of socket) {
-        switch (msg.message_type) {
-          case "listen-started":
-            if ("agent_number" in conn) {
-              this._logger.info(
-                "Listening on %s (%d other listeners).",
-                conn.agent_number,
-                msg.other_listeners,
-              );
-            } else {
-              this._logger.info(
-                "Listening on WebRTC code %s (%d other listeners).",
-                conn.webrtc_code,
-                msg.other_listeners,
-              );
-              const debugUrl = new URL(
-                `debug-webrtc?webrtc_code=${conn.webrtc_code}`,
-                this._client.getHttpBase(),
-              );
-              this._logger.info("Call your agent at: %s", debugUrl);
+      await using socket = await new GuavaSocket<
+        ListenInbound.ClientMessage,
+        ListenInbound.ServerMessage
+      >(
+        "listen-inbound",
+        url.toString(),
+        this._client,
+        (msg) => msg as unknown as Record<string, unknown>,
+        ListenInbound.decodeServerMessage,
+      ).connect();
+
+      try {
+        for await (const msg of socket) {
+          switch (msg.message_type) {
+            case "listen-started":
+              healthCtx.ready();
+              if ("agent_number" in conn) {
+                this._logger.info(
+                  "Listening on %s (%d other listeners).",
+                  conn.agent_number,
+                  msg.other_listeners,
+                );
+              } else if ("webrtc_code" in conn) {
+                this._logger.info(
+                  "Listening on WebRTC code %s (%d other listeners).",
+                  conn.webrtc_code,
+                  msg.other_listeners,
+                );
+                const debugUrl = new URL(
+                  `debug-webrtc?webrtc_code=${conn.webrtc_code}`,
+                  this._client.getHttpBase(),
+                );
+                this._logger.info("Call your agent at: %s", debugUrl);
+              } else {
+                this._logger.info(
+                  "Listening on SIP code %s (%d other listeners).",
+                  conn.sip_code,
+                  msg.other_listeners,
+                );
+              }
+              break;
+            case "incoming-call":
+              socket.send({ message_type: "claim-call", call_id: msg.call_id });
+              break;
+            case "assign-call": {
+              const { call_id, call_info } = msg;
+              this._logger.info("Received call (session ID: %s)", call_id);
+              this._handleAssignedCall(call_id, call_info, socket).catch((err) => {
+                this._logger.error("Error handling assigned call %s: %s", call_id, err);
+              });
+              break;
             }
-            break;
-          case "incoming-call":
-            socket.send({ message_type: "claim-call", call_id: msg.call_id });
-            break;
-          case "assign-call": {
-            const { call_id, call_info } = msg;
-            this._logger.info("Received call (session ID: %s)", call_id);
-            this._handleAssignedCall(call_id, call_info, socket).catch((err) => {
-              this._logger.error("Error handling assigned call %s: %s", call_id, err);
-            });
-            break;
           }
         }
+      } catch (e) {
+        if (!(e instanceof GuavaSocketClosedError)) throw e;
       }
-    } catch (e) {
-      if (!(e instanceof GuavaSocketClosedError)) throw e;
+    } finally {
+      healthCtx.stopped();
     }
   }
 
@@ -466,7 +564,7 @@ export class Agent {
     } else {
       this._logger.info("Accepting call %s.", callId);
       socket.send({ message_type: "answer-call", call_id: callId });
-      await this._attachToCall(callId, initialVariables);
+      await this._attachToCall(callId, callInfo, initialVariables);
     }
   }
 
@@ -489,7 +587,13 @@ export class Agent {
     const { call_id } = (await response.json()) as { call_id: string };
 
     this._logger.info("Outbound call created with session ID: %s", call_id);
-    await this._attachToCall(call_id, variables);
+    const callInfo: CallInfo = {
+      call_type: "pstn",
+      from_number: fromNumber ?? null,
+      to_number: toNumber,
+      caller_id: null,
+    };
+    await this._attachToCall(call_id, callInfo, variables);
   }
 
   /**
@@ -529,8 +633,15 @@ export class Agent {
     const sessionStarted = SessionStarted.parse(JSON.parse(rawFirst));
     const testSession = new TestSession(ws, this._client);
 
+    const testCallInfo: CallInfo = {
+      call_type: "pstn",
+      from_number: null,
+      to_number: "+15555555555",
+      caller_id: null,
+    };
     const attachPromise = this._attachToCall(
       sessionStarted.session_id,
+      testCallInfo,
       variables,
       testSession,
     ).catch((err: unknown) => {
@@ -671,6 +782,8 @@ Choose "speak" and provide your next utterance, or choose "hangup" if the conver
       name: this._name,
       organization: this._organization,
       purpose: this._purpose,
+      voice: this._voice,
+      acceptDtmf: this._acceptDtmfForNumbers,
     });
     cloned._onCallReceived = this._onCallReceived;
     cloned._onCallStart = this._onCallStart;
@@ -680,66 +793,85 @@ Choose "speak" and provide your next utterance, or choose "hangup" if the conver
     cloned._onTaskCompleteGeneric = this._onTaskCompleteGeneric;
     cloned._onTaskCompleteHandlers = { ...this._onTaskCompleteHandlers };
     cloned._searchQueryHandlers = { ...this._searchQueryHandlers };
+    cloned._onValidateHandlers = { ...this._onValidateHandlers };
     cloned._onActionRequested = this._onActionRequested;
     cloned._onActionGeneric = this._onActionGeneric;
     cloned._onActionHandlers = { ...this._onActionHandlers };
     cloned._onSessionEnd = this._onSessionEnd;
+    cloned._onEscalate = this._onEscalate;
     cloned._onDtmf = this._onDtmf;
     return cloned;
   }
 
-  private async _serveCampaign(campaignCode: string): Promise<void> {
-    const campaignUrl = new URL(`v1/campaigns/${campaignCode}`, this._client.getHttpBase());
-    const campaignResponse = await fetchOrThrow(campaignUrl, {
-      headers: await this._client.headers(),
-    });
-    const campaign = (await campaignResponse.json()) as { id: string; name: string };
-
-    const wsUrl = new URL(`v1/serve-campaign/${campaign.id}`, this._client.getWebsocketBase());
-    this._logger.info("Connecting to campaign '%s' (id: %s).", campaign.name, campaign.id);
-
-    await using socket = await new GuavaSocket<DialerClientMessage, DialerServerMessage>(
-      "serve-campaign",
-      wsUrl.toString(),
-      this._client,
-      (msg) => msg as unknown as Record<string, unknown>,
-      decodeDialerServerMessage,
-    ).connect();
-
-    const activeCalls: Promise<void>[] = [];
-
+  private async _serveCampaign(healthCtx: HealthContext, campaignCode: string): Promise<void> {
     try {
-      for await (const msg of socket) {
-        switch (msg.message_type) {
-          case "listen-started":
-            this._logger.info("Listening for calls on campaign '%s'. Ready.", campaign.name);
-            break;
-          case "initiate-and-assign-call": {
-            const { call_id, contact_data } = msg;
-            const data = contact_data as Record<string, unknown> | null;
-            const logPhone = (data?.phone_number as string | undefined) ?? "?";
-            this._logger.info(
-              "Ready to make call, id %s — initiating call setup and dispatch for contact %s.",
-              call_id,
-              logPhone,
-            );
-            activeCalls.push(
-              (async () => {
-                socket.send({ message_type: "controller-ready", call_id });
-                const variables = (data?.data as Record<string, unknown>) ?? {};
-                await this._attachToCall(call_id, variables, undefined, "v2/connect-campaign-call");
-              })(),
-            );
-            break;
+      const campaignUrl = new URL(`v1/campaigns/${campaignCode}`, this._client.getHttpBase());
+      const campaignResponse = await fetchOrThrow(campaignUrl, {
+        headers: await this._client.headers(),
+      });
+      const campaign = (await campaignResponse.json()) as { id: string; name: string };
+
+      const wsUrl = new URL(`v1/serve-campaign/${campaign.id}`, this._client.getWebsocketBase());
+      this._logger.info("Connecting to campaign '%s' (id: %s).", campaign.name, campaign.id);
+
+      await using socket = await new GuavaSocket<DialerClientMessage, DialerServerMessage>(
+        "serve-campaign",
+        wsUrl.toString(),
+        this._client,
+        (msg) => msg as unknown as Record<string, unknown>,
+        decodeDialerServerMessage,
+      ).connect();
+
+      const activeCalls: Promise<void>[] = [];
+
+      try {
+        for await (const msg of socket) {
+          switch (msg.message_type) {
+            case "listen-started":
+              this._logger.info("Listening for calls on campaign '%s'. Ready.", campaign.name);
+              healthCtx.ready();
+              break;
+            case "initiate-and-assign-call": {
+              const { call_id, contact_data } = msg;
+              const data = contact_data as Record<string, unknown> | null;
+              const logPhone = (data?.phone_number as string | undefined) ?? "?";
+              this._logger.info(
+                "Ready to make call, id %s — initiating call setup and dispatch for contact %s.",
+                call_id,
+                logPhone,
+              );
+              activeCalls.push(
+                (async () => {
+                  socket.send({ message_type: "controller-ready", call_id });
+                  const variables = (data?.data as Record<string, unknown>) ?? {};
+                  const campaignCallInfo: CallInfo = {
+                    call_type: "pstn",
+                    from_number: null,
+                    to_number: (data?.phone_number as string) ?? "",
+                    caller_id: null,
+                  };
+                  await this._attachToCall(
+                    call_id,
+                    campaignCallInfo,
+                    variables,
+                    undefined,
+                    "v2/connect-campaign-call",
+                  );
+                })(),
+              );
+              break;
+            }
           }
         }
+      } catch (e) {
+        if (!(e instanceof GuavaSocketClosedError)) throw e;
+        this._logger.info("Campaign '%s' disconnected.", campaign.name);
       }
-    } catch (e) {
-      if (!(e instanceof GuavaSocketClosedError)) throw e;
-      this._logger.info("Campaign '%s' disconnected.", campaign.name);
-    }
 
-    await Promise.all(activeCalls);
+      await Promise.all(activeCalls);
+    } finally {
+      healthCtx.stopped();
+    }
   }
 
   /**
@@ -754,7 +886,9 @@ Choose "speak" and provide your next utterance, or choose "hangup" if the conver
    * await agent.attachCampaign("gcmp-abc123");
    */
   async attachCampaign(campaignCode: string): Promise<void> {
-    return this._serveCampaign(campaignCode);
+    const healthCtx = new HealthContext();
+    await using _server = await getHealthServer(healthCtx);
+    return this._serveCampaign(healthCtx, campaignCode);
   }
 
   /* ===== Aliases to be removed at some point. ===== */

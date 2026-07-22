@@ -2,7 +2,7 @@
   "name": "@guava-ai/guava-sdk",
   "description": "The official TypeScript SDK for building Guava voice agents.",
   "homepage": "https://docs.goguava.ai/typescript-sdk/",
-  "version": "0.23.0",
+  "version": "0.24.0",
   "type": "commonjs",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
@@ -10,6 +10,10 @@
     ".": {
       "types": "./dist/src/index.d.ts",
       "default": "./dist/src/index.js"
+    },
+    "./helpers": {
+      "types": "./dist/src/helpers/index.d.ts",
+      "default": "./dist/src/helpers/index.js"
     },
     "./helpers/openai": {
       "types": "./dist/src/helpers/openai.d.ts",

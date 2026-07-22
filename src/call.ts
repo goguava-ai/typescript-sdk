@@ -9,6 +9,7 @@ import {
   TransferCommand,
   ReadScriptCommand,
   RetryTaskCommand,
+  SetAgentDTMFCommand,
 } from "./commands.ts";
 import type * as z from "zod";
 import type {
@@ -20,6 +21,7 @@ import type {
 } from "./action-item.ts";
 import { Say } from "./action-item.ts";
 import { telemetryClient } from "./telemetry.ts";
+import type { CallInfo } from "./socket/call-info.ts";
 
 export type TaskObjective =
   | { objective: string }
@@ -33,6 +35,8 @@ export type ReachPersonOutcome = {
 
 @telemetryClient.trackClass()
 export class Call {
+  private _callId: string;
+  private _callInfo: CallInfo;
   protected _commandQueue: Command[] = [];
   private _variables: Record<string, any> = {};
   protected logger: Logger;
@@ -42,13 +46,30 @@ export class Call {
   // input (mutating it) (i.e. _drain should use Array.splice)
   private _drain?: (_: Command[]) => Promise<void>;
   _fieldValues: Record<string, unknown> = {};
+  _fieldKeysByTaskId: Record<string, string[]> = {};
 
-  constructor(variables: Record<string, any> = {}, logger: Logger = getDefaultLogger()) {
+  constructor(
+    callId: string,
+    callInfo: CallInfo,
+    variables: Record<string, any> = {},
+    logger: Logger = getDefaultLogger(),
+  ) {
+    this._callId = callId;
+    this._callInfo = callInfo;
+
     // Set initial variables.
     this._variables = { ...variables };
 
     // Set up the default logger.
     this.logger = logger;
+  }
+
+  get id(): string {
+    return this._callId;
+  }
+
+  get callInfo(): CallInfo {
+    return this._callInfo;
   }
 
   /**
@@ -75,6 +96,10 @@ export class Call {
     }
   }
 
+  hasField(key: string): boolean {
+    return key in this._fieldValues;
+  }
+
   async sendCommand<C extends Command, Schema extends z.ZodType<C>>(
     schema: Schema,
     data: z.input<Schema>,
@@ -82,6 +107,13 @@ export class Call {
     const command = schema.parse(data);
     this._commandQueue.push(command);
     await this.flush();
+  }
+
+  async setAgentDtmf(enabled: boolean) {
+    await this.sendCommand(SetAgentDTMFCommand, {
+      command_type: "set-agent-dtmf",
+      enabled,
+    });
   }
 
   async setLanguageMode(args: { primary?: Language; secondary?: Language[] }) {
@@ -128,6 +160,7 @@ export class Call {
       throw new Error("At least one of ['objective', 'checklist'] must be provided.");
     }
 
+    const fieldKeys: string[] = [];
     const action_items = checklist.map((item): ActionItem => {
       if (typeof item === "string") {
         return { item_type: "todo", description: item } satisfies TodoItem;
@@ -138,11 +171,14 @@ export class Call {
             "choiceGenerator is not compatible with the Agent / Call API. Use searchable=true and register a handler.",
           );
         }
+        fieldKeys.push(item.key);
         const { choiceGenerator: _, ...fieldData } = item;
         return { ...fieldData, is_search_field: item.searchable } satisfies SerializableFieldItem;
       }
       return item;
     });
+
+    this._fieldKeysByTaskId[taskId] = fieldKeys;
 
     await this.sendCommand(SetTaskCommand, {
       command_type: "set-task",

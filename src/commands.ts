@@ -94,14 +94,21 @@ export const RegisteredHooksCommand = z.strictObject({
   has_on_question: z.boolean(),
   has_on_intent: z.boolean(),
   has_on_action_requested: z.boolean().optional().default(false),
+  has_on_escalate: z.boolean().optional().default(false),
+  accept_dtmf_for_numbers: z.boolean().default(true),
 });
 export type RegisteredHooksCommand = z.input<typeof RegisteredHooksCommand>;
+
+export const ActionCandidate = z.strictObject({
+  key: z.string(),
+  description: z.string().default(""),
+});
+export type ActionCandidate = z.input<typeof ActionCandidate>;
 
 export const ActionSuggestionCommand = z.strictObject({
   command_type: z.literal("action-suggestion"),
   intent_id: z.string(),
-  action_key: z.string().nullable(),
-  action_description: z.string().default(""),
+  actions: z.array(ActionCandidate),
 });
 export type ActionSuggestionCommand = z.input<typeof ActionSuggestionCommand>;
 
@@ -120,6 +127,12 @@ export const RetryTaskCommand = z.strictObject({
 });
 export type RetryTaskCommand = z.input<typeof RetryTaskCommand>;
 
+export const SetAgentDTMFCommand = z.strictObject({
+  command_type: z.literal("set-agent-dtmf"),
+  enabled: z.boolean(),
+});
+export type SetAgentDTMFCommand = z.input<typeof SetAgentDTMFCommand>;
+
 export const AnyCommand = z.union([
   StartOutboundCallCommand,
   ListenInboundCommand,
@@ -136,6 +149,7 @@ export const AnyCommand = z.union([
   ChoiceResultCommand,
   ActionSuggestionCommand,
   RetryTaskCommand,
+  SetAgentDTMFCommand,
 ]);
 export type Command = z.input<typeof AnyCommand>;
 

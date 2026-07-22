@@ -1,7 +1,7 @@
 import * as z from "zod";
 
 export const FieldItemType = z.union(
-  (["text", "date", "datetime", "integer", "multiple_choice", "calendar_slot"] as const).map(
+  (["text", "date", "integer", "digit_sequence", "multiple_choice", "calendar_slot"] as const).map(
     (val) => z.literal(val),
   ),
 );

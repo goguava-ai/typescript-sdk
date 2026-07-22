@@ -14,12 +14,14 @@ export const InboundCallEvent = z.object({
 export type InboundCallEvent = z.infer<typeof InboundCallEvent>;
 
 /**
- * @description The caller has said something.
+ * @description The caller has said something. For utterances with the same id,
+ * all but the latest is out of date.
  */
 export const CallerSpeechEvent = z.object({
   event_type: z.literal("caller-speech"),
 
   utterance: z.string(),
+  utterance_id: z.string().optional(),
 });
 export type CallerSpeechEvent = z.infer<typeof CallerSpeechEvent>;
 
@@ -145,8 +147,15 @@ export type DTMFDigit =
 export const DTMFPressedEvent = z.object({
   event_type: z.literal("dtmf"),
   digit: z.enum(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "#", "A", "B", "C", "D"]),
+  recent_digits: z.string().default(""),
 });
 export type DTMFPressedEvent = z.infer<typeof DTMFPressedEvent>;
+
+export const EscalateEvent = z.object({
+  event_type: z.literal("escalate"),
+  requested_by: z.enum(["human", "agent"]).default("human"),
+});
+export type EscalateEvent = z.infer<typeof EscalateEvent>;
 
 export const GuavaEvent = z.discriminatedUnion("event_type", [
   SessionStartedEvent,
@@ -165,6 +174,7 @@ export const GuavaEvent = z.discriminatedUnion("event_type", [
   ChoiceQueryEvent,
   ActionRequestEvent,
   ExecuteActionEvent,
+  EscalateEvent,
   DTMFPressedEvent,
 ]);
 export type GuavaEvent = z.infer<typeof GuavaEvent>;

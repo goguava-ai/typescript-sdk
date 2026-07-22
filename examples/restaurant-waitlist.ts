@@ -47,12 +47,21 @@ export async function run(args: string[]) {
     await agent.listenWebrtc();
   } else if (args.includes("--phone")) {
     agent.listenPhone(process.env.GUAVA_AGENT_NUMBER!);
+  } else if (args.includes("--sip")) {
+    const sipCode = args[args.indexOf("--sip") + 1];
+    if (!sipCode) {
+      console.error("Error: --sip requires a SIP code argument.");
+      process.exit(1);
+    }
+    await agent.listenSip(sipCode);
   } else if (args.includes("--local")) {
     await agent.callLocal();
   } else if (args.includes("--chat")) {
     await agent.chat();
   } else {
-    console.error("Usage: guava-example restaurant-waitlist --phone | --webrtc | --local | --chat");
+    console.error(
+      "Usage: guava-example restaurant-waitlist --phone | --webrtc | --sip | --local | --chat",
+    );
     process.exit(1);
   }
 }

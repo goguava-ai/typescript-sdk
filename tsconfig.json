@@ -15,6 +15,7 @@
     "paths": {
       "@guava-ai/guava-sdk": ["./src/index.ts"],
       "@guava-ai/guava-sdk/example-data": ["./src/example-data.ts"],
+      "@guava-ai/guava-sdk/helpers": ["./src/helpers/index.ts"],
       "@guava-ai/guava-sdk/helpers/openai": ["./src/helpers/openai.ts"],
       "@guava-ai/guava-sdk/examples/help-desk": ["./examples/help-desk.ts"]
     }

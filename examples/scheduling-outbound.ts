@@ -1,5 +1,5 @@
 import * as guava from "@guava-ai/guava-sdk";
-import { DatetimeFilter } from "@guava-ai/guava-sdk/helpers/openai";
+import { DatetimeFilter } from "@guava-ai/guava-sdk/helpers";
 import { mockAppointmentsForFuture } from "@guava-ai/guava-sdk/example-data";
 
 const agent = new guava.Agent({
@@ -7,9 +7,7 @@ const agent = new guava.Agent({
   purpose: "You are calling patients to help them schedule a dental appointment",
 });
 
-const datetimeFilter = new DatetimeFilter({
-  sourceList: mockAppointmentsForFuture(),
-});
+const datetimeFilter = new DatetimeFilter(mockAppointmentsForFuture());
 
 agent.onCallStart(async (call: guava.Call) => {
   await call.reachPerson(await call.getVariable("patientName"));

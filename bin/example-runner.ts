@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 
+import * as path from "node:path";
+import { Command } from "commander";
+
 const USE_COLOR = process.stdout.isTTY === true && !process.env.NO_COLOR;
 const c = {
   reset: USE_COLOR ? "\x1b[0m" : "",
@@ -15,7 +18,7 @@ type Registered = { suite: string; name: string; fn: TestFn };
 
 // This is a minimal in-process implementation of a Jest-like test runnner to allow the agent testing example
 // to be run from example runner.
-async function runAgentTesting(_args: string[]): Promise<void> {
+async function runAgentTesting(_prog: string, _args: string[]): Promise<void> {
   const registered: Registered[] = [];
   let currentSuite = "";
 
@@ -89,8 +92,26 @@ async function runAgentTesting(_args: string[]): Promise<void> {
 
 type ExampleEntry = {
   description: string;
-  load: () => Promise<{ run: (args: string[]) => Promise<void> }>;
+  load: () => Promise<{ run: (prog: string, args: string[]) => Promise<void> }>;
 };
+
+// Reconstruct how this program was launched so usage/help text matches the
+// command the user actually typed.
+function launcher(): string {
+  const script = process.argv[1] ?? "";
+  if (script.endsWith(".ts")) {
+    // Developer workflow, e.g. `npx tsx ./bin/example-runner.ts <example>`.
+    const rel = path.relative(process.cwd(), script) || path.basename(script);
+    return `npx tsx ${rel}`;
+  }
+  // Installed package: exposed as the `guava-example` bin (also how
+  // `npx @guava-ai/guava-sdk@latest ...` resolves).
+  return "guava-example";
+}
+
+function invocationPrefix(exampleName: string): string {
+  return `${launcher()} ${exampleName}`;
+}
 
 const EXAMPLES: Record<string, ExampleEntry> = {
   "scheduling-outbound": {
@@ -123,31 +144,51 @@ const EXAMPLES: Record<string, ExampleEntry> = {
   },
 };
 
-function printUsage(message?: string): void {
-  const colWidth = Math.max(...Object.keys(EXAMPLES).map((k) => k.length)) + 3;
-  if (message) {
-    console.error(`${c.red}${message}${c.reset}\n`);
-  }
-  console.error(`${c.bold}Usage:${c.reset} guava-example <example-name> [args...]\n`);
-  console.error(`${c.bold}Examples:${c.reset}`);
-  for (const [name, { description }] of Object.entries(EXAMPLES)) {
-    const padded = name.padEnd(colWidth);
-    console.error(`  ${c.cyan}${padded}${c.reset}${c.dim}${description}${c.reset}`);
-  }
+// Help styling. We always emit ANSI here; commander strips it per output stream
+// when the destination doesn't support color (NO_COLOR, non-TTY, etc.).
+const ansi = {
+  bold: (s: string) => `\x1b[1m${s}\x1b[0m`,
+  green: (s: string) => `\x1b[32m${s}\x1b[0m`,
+  cyan: (s: string) => `\x1b[36m${s}\x1b[0m`,
+  dim: (s: string) => `\x1b[2m${s}\x1b[0m`,
+};
+
+// Each example owns its own commander program (its channel subcommands live in
+// its `run`). This top-level program just selects an example and forwards the
+// remaining args verbatim, so only the chosen example's module is imported.
+const program = new Command()
+  .name(launcher())
+  .description("Runnable examples for the Guava TypeScript SDK.")
+  .showHelpAfterError()
+  .helpCommand(false)
+  .configureHelp({
+    styleTitle: ansi.bold,
+    styleCommandText: ansi.green,
+    styleSubcommandTerm: ansi.green,
+    styleOptionTerm: ansi.cyan,
+    styleArgumentTerm: ansi.cyan,
+    styleSubcommandDescription: ansi.dim,
+    styleOptionDescription: ansi.dim,
+    styleArgumentDescription: ansi.dim,
+  });
+
+for (const [name, entry] of Object.entries(EXAMPLES)) {
+  program
+    .command(name)
+    .description(entry.description)
+    .argument("[args...]", "arguments forwarded to the example")
+    // The example has no options of its own here, so everything after its name
+    // (including flags like `--phone` and `--help`) is forwarded into `args`
+    // for the example's own commander to parse.
+    .allowUnknownOption()
+    .helpOption(false)
+    .action(async (args: string[]) => {
+      const mod = await entry.load();
+      await mod.run(invocationPrefix(name), args);
+    });
 }
 
-const exampleName = process.argv[2];
-if (!exampleName) {
-  printUsage();
+program.parseAsync().catch((err) => {
+  console.error(err);
   process.exit(1);
-}
-
-if (!(exampleName in EXAMPLES)) {
-  printUsage(`Unknown example "${exampleName}".`);
-  process.exit(1);
-}
-
-(async () => {
-  const mod = await EXAMPLES[exampleName].load();
-  await mod.run(process.argv.slice(3));
-})();
+});

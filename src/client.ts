@@ -1,19 +1,10 @@
-import WebSocket from "ws";
 import { type Logger, getDefaultLogger } from "./logging.ts";
-import {
-  StartOutboundCallCommand,
-  ListenInboundCommand,
-  InboundTunnelCommand,
-} from "./commands.ts";
-import * as z from "zod";
-import { ErrorEvent, SessionStartedEvent, decodeEvent, InboundTunnelEvent } from "./events.ts";
 import { SDK_VERSION } from "./version.ts";
 import os from "node:os";
 import * as fs from "node:fs";
 import { getBaseUrl, fetchOrThrow, sleep } from "./utils.ts";
 import { SmsMessage } from "./sms.ts";
 import { telemetryClient } from "./telemetry.ts";
-import type { CallController } from "./call-controller.ts";
 import {
   type AuthStrategy,
   APIKeyAuth,
@@ -35,10 +26,6 @@ export interface ClientOptions {
 
 let firstClient = false;
 
-function stringifyZod<Schema extends z.ZodType>(schema: Schema, data: z.input<Schema>): string {
-  return JSON.stringify(schema.parse(data));
-}
-
 export type InboundConnection = { agent_number: string } | { webrtc_code: string };
 
 const http_start = /^http:\/\//;
@@ -49,9 +36,6 @@ export class Client {
   private _auth: AuthStrategy;
   private _baseUrl: string;
   private _logger: Logger;
-  private _ws?: WebSocket;
-  private _controller?: CallController;
-  private messageHandler?: (_: WebSocket.MessageEvent) => void;
 
   constructor({
     apiKey,
@@ -244,186 +228,5 @@ export class Client {
       }
       await sleep(Math.min(pollIntervalMs, remaining));
     }
-  }
-
-  /**
-   * @description use the Guava API to call out to a number
-   */
-  async createOutbound(
-    fromNumber: string | undefined,
-    toNumber: string,
-    callController: CallController,
-  ) {
-    const url = new URL("v1/create-outbound", this.getWebsocketBase());
-    const ws = new WebSocket(url, {
-      headers: await this.headers(),
-    });
-
-    ws.addEventListener("open", async (_ev) => {
-      ws.send(
-        stringifyZod(StartOutboundCallCommand, {
-          command_type: "start-outbound",
-          to_number: toNumber,
-          from_number: fromNumber,
-        }),
-      );
-
-      // set the callController drain function to send all commands
-      // through the now open websocket
-      callController.setDrain(async (commands) => {
-        for (const command of commands.splice(0)) {
-          this._logger.debug(`Sending command ${JSON.stringify(command)}`);
-          ws.send(JSON.stringify(command));
-        }
-      });
-
-      await callController.onCallStart();
-    });
-
-    ws.addEventListener("close", (_ev) => {
-      // we are closing the socket, so don't trigger any other listeners
-      ws.removeAllListeners();
-      this._ws = undefined;
-      this._controller = undefined;
-    });
-
-    this._ws = ws;
-    this._controller = callController;
-    this.replaceHandler(this.uninitializedOutbound.bind(this));
-  }
-
-  private replaceHandler(newHandler?: (_: WebSocket.MessageEvent) => void) {
-    if (this.messageHandler) {
-      this._ws?.removeEventListener("message", this.messageHandler);
-    }
-    if (newHandler) {
-      this._ws?.addEventListener("message", newHandler);
-    }
-    this.messageHandler = newHandler;
-  }
-
-  // eventlistener handlers for server events
-  // (a state machine in functions)
-  private uninitializedOutbound(ev: WebSocket.MessageEvent) {
-    // for correctness (and type correctness)
-    if (!this._ws) {
-      throw new Error("[internal] Uninitialized WebSocket");
-    }
-
-    const session_started = z
-      .union([SessionStartedEvent, ErrorEvent])
-      .parse(JSON.parse(ev.data.toString("utf8")));
-    if (session_started.event_type === "error") {
-      throw new Error(`Outbound call failed: ${session_started.content}`);
-    } else {
-      this._logger.info(`Started session with ID: ${session_started.session_id}`);
-      // move to next state
-      this.replaceHandler(this.initializedOutbound.bind(this));
-    }
-  }
-
-  private async initializedOutbound(ev: WebSocket.MessageEvent) {
-    // for correctness (and type correctness)
-    if (!this._ws) {
-      throw new Error("[internal] Uninitialized WebSocket");
-    }
-
-    // handle the received event
-    const event = decodeEvent(ev.data);
-    if (event) {
-      if (this._controller) {
-        await this._controller.onEvent(event);
-      }
-      if (event.event_type === "outbound-call-failed" || event.event_type === "bot-session-ended") {
-        // shutdown the websocket
-        this._ws.close();
-      }
-    }
-  }
-
-  /**
-   * @description use the Guava API to receive calls at a given number
-   */
-  async listenInbound<U extends CallController>(
-    conn: InboundConnection,
-    controllerClassFactory: (logger: Logger) => U,
-  ): Promise<InboundListener> {
-    const callControllers: Record<string, U> = {};
-
-    // return a way to *stop* listening
-    const url = new URL("v1/listen-inbound", this.getWebsocketBase());
-    const ws = new WebSocket(url, {
-      headers: await this.headers(),
-    });
-    let agent_number: string | undefined;
-    let webrtc_code: string | undefined;
-    if ("agent_number" in conn) {
-      agent_number = conn.agent_number;
-    } else {
-      webrtc_code = conn.webrtc_code;
-    }
-
-    this._logger.info(`Listening for calls to ${agent_number ?? webrtc_code}`);
-
-    if (webrtc_code) {
-      const debugurl = new URL(`debug-webrtc?webrtc_code=${webrtc_code}`, this.getHttpBase());
-      this._logger.debug(`WebRTC DebugURL: ${debugurl}`);
-    }
-
-    ws.addEventListener("open", (_ev) => {
-      ws.send(
-        stringifyZod(ListenInboundCommand, {
-          command_type: "listen-inbound",
-          agent_number: agent_number,
-          webrtc_code: webrtc_code,
-        }),
-      );
-    });
-
-    ws.addEventListener("close", (_ev) => {
-      ws.removeAllListeners();
-    });
-
-    ws.addEventListener("message", (ev) => {
-      const tunnel_event = InboundTunnelEvent.parse(JSON.parse(ev.data.toString("utf8")));
-      if (!(tunnel_event.call_id in callControllers)) {
-        this._logger.info(
-          `Received tunnel event for new call ID: ${tunnel_event.call_id}. Creating call controller.`,
-        );
-
-        const newController = controllerClassFactory(this._logger);
-        newController.setDrain(async (commands) => {
-          for (const command of commands.splice(0)) {
-            this._logger.debug(
-              `Sending command: ${JSON.stringify(command)} for call ID: ${tunnel_event.call_id}`,
-            );
-            ws.send(
-              stringifyZod(InboundTunnelCommand, {
-                call_id: tunnel_event.call_id,
-                command,
-              }),
-            );
-          }
-        });
-        callControllers[tunnel_event.call_id] = newController;
-        newController.onEvent(tunnel_event.event);
-      } else {
-        // no threading, so manually forward to onEvent!
-        callControllers[tunnel_event.call_id].onEvent(tunnel_event.event);
-      }
-    });
-
-    return new InboundListener(ws);
-  }
-}
-
-class InboundListener {
-  private ws: WebSocket;
-  constructor(ws: WebSocket) {
-    this.ws = ws;
-  }
-
-  close() {
-    this.ws.close();
   }
 }

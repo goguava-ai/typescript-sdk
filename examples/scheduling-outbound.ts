@@ -1,3 +1,4 @@
+import { Command } from "commander";
 import * as guava from "@guava-ai/guava-sdk";
 import { DatetimeFilter } from "@guava-ai/guava-sdk/helpers";
 import { mockAppointmentsForFuture } from "@guava-ai/guava-sdk/example-data";
@@ -42,22 +43,32 @@ agent.onTaskComplete("schedule_appointment", async (call) => {
   await call.hangup("Thank them for their time and hang up the call.");
 });
 
-export async function run(args: string[]) {
-  if (args.includes("--chat")) {
-    const patientName = args[args.indexOf("--chat") + 1] ?? "Benjamin Buttons";
-    await agent.chat({ patientName });
-    return;
-  }
+export async function run(prog: string, args: string[]) {
+  const program = new Command().name(prog).showHelpAfterError();
 
-  const [toNumber, patientName = "Benjamin Buttons"] = args;
+  program
+    .command("phone <number>")
+    .description("Call a phone number.")
+    .option("-n, --name <name>", "Name of the patient.", "Benjamin Buttons")
+    .action(async (number: string, options: { name: string }) => {
+      await agent.callPhone(await getAgentNumber(), number, { patientName: options.name });
+    });
 
-  if (!toNumber) {
-    console.error("Usage: guava-example scheduling-outbound <phone> [name]");
-    console.error("       guava-example scheduling-outbound --chat [name]");
-    process.exit(1);
-  }
+  program
+    .command("local")
+    .description("Start a local call (for testing).")
+    .option("-n, --name <name>", "Name of the patient.", "Benjamin Buttons")
+    .action(async (options: { name: string }) => {
+      await agent.callLocal({ patientName: options.name });
+    });
 
-  agent.callPhone(await getAgentNumber(), toNumber, {
-    patientName: patientName,
-  });
+  program
+    .command("chat")
+    .description("Start a local chat session (for testing).")
+    .option("-n, --name <name>", "Name of the patient.", "Benjamin Buttons")
+    .action(async (options: { name: string }) => {
+      await agent.chat({ patientName: options.name });
+    });
+
+  await program.parseAsync(args, { from: "user" });
 }

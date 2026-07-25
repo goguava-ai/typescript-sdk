@@ -5,7 +5,7 @@ import type { Client } from "./client.ts";
 const QUEUE_MAX_SIZE = 100;
 const UPLOAD_INTERVAL_MS = 10_000;
 
-const debugEnabled = ["yes", "true"].includes(
+const debugEnabled = ["yes", "true", "on"].includes(
   (process.env.GUAVA_DEBUG_TELEMETRY ?? "false").toLowerCase().trim(),
 );
 const logger: Logger = debugEnabled

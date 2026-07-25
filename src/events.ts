@@ -126,27 +126,29 @@ export const ExecuteActionEvent = z.object({
 });
 export type ExecuteActionEvent = z.infer<typeof ExecuteActionEvent>;
 
-export type DTMFDigit =
-  | "0"
-  | "1"
-  | "2"
-  | "3"
-  | "4"
-  | "5"
-  | "6"
-  | "7"
-  | "8"
-  | "9"
-  | "*"
-  | "#"
-  | "A"
-  | "B"
-  | "C"
-  | "D";
+export const DTMF_DIGITS = [
+  "0",
+  "1",
+  "2",
+  "3",
+  "4",
+  "5",
+  "6",
+  "7",
+  "8",
+  "9",
+  "*",
+  "#",
+  "A",
+  "B",
+  "C",
+  "D",
+] as const;
+export type DTMFDigit = (typeof DTMF_DIGITS)[number];
 
 export const DTMFPressedEvent = z.object({
   event_type: z.literal("dtmf"),
-  digit: z.enum(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "#", "A", "B", "C", "D"]),
+  digit: z.enum(DTMF_DIGITS),
   recent_digits: z.string().default(""),
 });
 export type DTMFPressedEvent = z.infer<typeof DTMFPressedEvent>;

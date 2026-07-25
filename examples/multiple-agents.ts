@@ -10,7 +10,7 @@ const agentB = new guava.Agent({
   purpose: "You are a helpful voice agent.",
 });
 
-export async function run(_args: string[]) {
+export async function run(_prog: string, _args: string[]) {
   const runner = new guava.Runner();
   runner.listenPhone(agentA, process.env.GUAVA_AGENT_NUMBER!);
   runner.listenWebrtc(agentB);

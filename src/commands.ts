@@ -1,5 +1,6 @@
 import * as z from "zod";
 import { ActionItem } from "./action-item.ts";
+import { DTMF_DIGITS } from "./events.ts";
 
 export const StartOutboundCallCommand = z.strictObject({
   command_type: z.literal("start-outbound"),
@@ -133,6 +134,12 @@ export const SetAgentDTMFCommand = z.strictObject({
 });
 export type SetAgentDTMFCommand = z.input<typeof SetAgentDTMFCommand>;
 
+export const SendAgentDTMFCommand = z.strictObject({
+  command_type: z.literal("send-agent-dtmf"),
+  digits: z.array(z.enum(DTMF_DIGITS)),
+});
+export type SendAgentDTMFCommand = z.input<typeof SendAgentDTMFCommand>;
+
 export const ExpertErrorCommand = z.strictObject({
   command_type: z.literal("expert-error"),
   message: z.string(),
@@ -156,6 +163,7 @@ export const AnyCommand = z.union([
   ActionSuggestionCommand,
   RetryTaskCommand,
   SetAgentDTMFCommand,
+  SendAgentDTMFCommand,
   ExpertErrorCommand,
 ]);
 export type Command = z.input<typeof AnyCommand>;

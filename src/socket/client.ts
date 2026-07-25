@@ -1,4 +1,5 @@
 import WebSocket from "ws";
+import type { IncomingMessage } from "node:http";
 import { randomBytes } from "node:crypto";
 import * as z from "zod";
 import type { Client } from "../client.ts";
@@ -134,6 +135,12 @@ export class GuavaSocket<SendT, RecvT> {
       const headers = await this._client.headers();
 
       try {
+        this._logger.debug(
+          "Connecting to %s (attempt %d/%d)...",
+          this._connectionUrl,
+          attempt,
+          MAX_RECONNECT_ATTEMPTS,
+        );
         const ws = await new Promise<WebSocket>((resolve, reject) => {
           const socket = new WebSocket(this._connectionUrl, { headers });
           let settled = false;
@@ -147,6 +154,21 @@ export class GuavaSocket<SendT, RecvT> {
           };
 
           socket.once("error", (err) => settle(() => reject(err)));
+          socket.once("unexpected-response", (_req, res: IncomingMessage) => {
+            let body = "";
+            res.on("data", (chunk: Buffer) => {
+              body += chunk.toString();
+            });
+            res.on("end", () => {
+              settle(() =>
+                reject(
+                  new Error(
+                    `Unexpected server response: ${res.statusCode}. Body: ${body || "<empty>"}`,
+                  ),
+                ),
+              );
+            });
+          });
           socket.once("close", () =>
             settle(() => reject(new Error("Connection closed before open-ack"))),
           );

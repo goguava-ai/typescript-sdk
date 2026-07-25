@@ -7,6 +7,7 @@
  *
  * Usage: guava-example polling-campaign <campaign-code>
  */
+import { Command } from "commander";
 import * as guava from "@guava-ai/guava-sdk";
 
 const agent = new guava.Agent({
@@ -67,13 +68,17 @@ agent.onTaskComplete("political_poll", async (call) => {
   );
 });
 
-export async function run(args: string[]) {
-  const [campaignCode] = args;
+export async function run(prog: string, args: string[]) {
+  const program = new Command().name(prog).showHelpAfterError();
 
-  if (!campaignCode) {
-    console.error("Usage: guava-example polling-campaign <campaign-code>");
-    process.exit(1);
-  }
+  program
+    .argument(
+      "<campaign_code>",
+      "The campaign code to attach to (e.g. gcp-...). Use the CLI or dashboard to create a campaign.",
+    )
+    .action(async (campaignCode: string) => {
+      await agent.attachCampaign(campaignCode);
+    });
 
-  await agent.attachCampaign(campaignCode);
+  await program.parseAsync(args, { from: "user" });
 }

@@ -27,7 +27,7 @@ $ export GUAVA_AGENT_NUMBER="..." # A phone number for your agent to use.
 Run an outbound phone call example using `npx`. Replace the phone number with your own and your agent will call you.
 
 ```bash
-$ npx @guava-ai/guava-sdk@latest scheduling-outbound +15556667777 # Your agent will call this number.
+$ npx @guava-ai/guava-sdk@latest scheduling-outbound phone +15556667777 # Your agent will call this number.
 ```
 
 ## Installation

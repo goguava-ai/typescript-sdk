@@ -276,12 +276,14 @@ export class Agent {
     return this._listenInbound(healthCtx, { sip_code: sipCode });
   }
 
-  async callLocal(): Promise<void> {
+  async callLocal(variables: Record<string, any> = {}): Promise<void> {
     const webrtcCode = await this._client.createWebrtcAgent(300);
     // No health-server for call_local.
-    this._listenInbound(new HealthContext(), { webrtc_code: webrtcCode }).catch((err) => {
-      this._logger.error("Listen loop error: %s", err);
-    });
+    this._listenInbound(new HealthContext(), { webrtc_code: webrtcCode }, variables).catch(
+      (err) => {
+        this._logger.error("Listen loop error: %s", err);
+      },
+    );
     await runWebrtcHelper(webrtcCode, getBaseUrl());
   }
 
@@ -574,7 +576,11 @@ export class Agent {
     }
   }
 
-  async _listenInbound(healthCtx: HealthContext, conn: InboundConnection): Promise<void> {
+  async _listenInbound(
+    healthCtx: HealthContext,
+    conn: InboundConnection,
+    initialVariables: Record<string, any> = {},
+  ): Promise<void> {
     const url = new URL("v2/listen-inbound", this._client.getWebsocketBase());
     if ("agent_number" in conn) {
       url.searchParams.set("phone_number", conn.agent_number);
@@ -632,9 +638,11 @@ export class Agent {
             case "assign-call": {
               const { call_id, call_info } = msg;
               this._logger.info("Received call (session ID: %s)", call_id);
-              this._handleAssignedCall(call_id, call_info, socket).catch((err) => {
-                this._logger.error("Error handling assigned call %s: %s", call_id, err);
-              });
+              this._handleAssignedCall(call_id, call_info, socket, initialVariables).catch(
+                (err) => {
+                  this._logger.error("Error handling assigned call %s: %s", call_id, err);
+                },
+              );
               break;
             }
           }

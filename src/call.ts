@@ -10,7 +10,9 @@ import {
   ReadScriptCommand,
   RetryTaskCommand,
   SetAgentDTMFCommand,
+  SendAgentDTMFCommand,
 } from "./commands.ts";
+import { DTMF_DIGITS, type DTMFDigit } from "./events.ts";
 import type * as z from "zod";
 import type {
   ActionItem,
@@ -133,9 +135,32 @@ export class Call {
   }
 
   async setAgentDtmf(enabled: boolean) {
+    if (this._callInfo.call_type === "webrtc") {
+      throw new Error("WebRTC calls do not support sending DTMF.");
+    }
     await this.sendCommand(SetAgentDTMFCommand, {
       command_type: "set-agent-dtmf",
       enabled,
+    });
+  }
+
+  async sendDtmf(digits: DTMFDigit[] | string) {
+    if (this._callInfo.call_type === "webrtc") {
+      throw new Error("WebRTC calls do not support sending DTMF.");
+    }
+
+    const digitsList = (typeof digits === "string" ? [...digits] : digits) as DTMFDigit[];
+
+    const validSet = new Set<string>(DTMF_DIGITS);
+    if (!digitsList.every((d) => validSet.has(d))) {
+      throw new Error(
+        `Please input a valid set of DTMF digits. The valid DTMF digits are: ${JSON.stringify(DTMF_DIGITS)}.`,
+      );
+    }
+
+    await this.sendCommand(SendAgentDTMFCommand, {
+      command_type: "send-agent-dtmf",
+      digits: digitsList,
     });
   }
 

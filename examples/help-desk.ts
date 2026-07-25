@@ -1,7 +1,9 @@
+import { Command } from "commander";
 import * as guava from "@guava-ai/guava-sdk";
 import { DocumentQA } from "@guava-ai/guava-sdk/helpers";
 import { IntentRecognizer } from "@guava-ai/guava-sdk/helpers";
 import { FURNITURE_RETAILER_QA } from "@guava-ai/guava-sdk/example-data";
+import { getAgentNumber } from "@guava-ai/guava-sdk/example-utils";
 
 export const agent = new guava.Agent({
   name: "Nova",
@@ -57,24 +59,44 @@ agent.onAction("other", async (call: guava.Call) => {
   );
 });
 
-export async function run(args: string[]) {
-  if (args.includes("--webrtc")) {
-    await agent.listenWebrtc();
-  } else if (args.includes("--phone")) {
-    agent.listenPhone(process.env.GUAVA_AGENT_NUMBER!);
-  } else if (args.includes("--sip")) {
-    const sipCode = args[args.indexOf("--sip") + 1];
-    if (!sipCode) {
-      console.error("Error: --sip requires a SIP code argument.");
-      process.exit(1);
-    }
-    await agent.listenSip(sipCode);
-  } else if (args.includes("--local")) {
-    await agent.callLocal();
-  } else if (args.includes("--chat")) {
-    await agent.chat();
-  } else {
-    console.error("Usage: guava-example help-desk --phone | --webrtc | --sip | --local | --chat");
-    process.exit(1);
-  }
+export async function run(prog: string, args: string[]) {
+  const program = new Command().name(prog).showHelpAfterError();
+
+  // Every Agent can be attached to one of many different channels.
+  program
+    .command("phone [number]")
+    .description("Listen for phone calls.")
+    .action(async (number?: string) => {
+      await agent.listenPhone(number ?? (await getAgentNumber()));
+    });
+
+  program
+    .command("webrtc [code]")
+    .description("Listen on a WebRTC code.")
+    .action(async (code?: string) => {
+      await agent.listenWebrtc(code);
+    });
+
+  program
+    .command("sip <code>")
+    .description("Listen on a SIP code 'guavasip-...'.")
+    .action(async (code: string) => {
+      await agent.listenSip(code);
+    });
+
+  program
+    .command("local")
+    .description("Start a local call.")
+    .action(async () => {
+      await agent.callLocal();
+    });
+
+  program
+    .command("chat")
+    .description("Start a local chat session (for testing).")
+    .action(async () => {
+      await agent.chat();
+    });
+
+  await program.parseAsync(args, { from: "user" });
 }

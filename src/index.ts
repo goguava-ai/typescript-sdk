@@ -1,6 +1,14 @@
 export { Client, type InboundConnection } from "./client.ts";
 export { Runner } from "./runner.ts";
 export type { SmsMessage } from "./sms.ts";
+export { Campaign } from "./campaigns.ts";
+export type {
+  Contact,
+  CampaignStatus,
+  UploadContactsResult,
+  UploadContactsOptions,
+  OutreachModality,
+} from "./campaigns.ts";
 export { Say, Field } from "./action-item.ts";
 export { Logger, getConsoleLogger, getDefaultLogger } from "./logging.ts";
 export { Agent, CallInfo } from "./agent.ts";

@@ -900,11 +900,7 @@ Choose "speak" and provide your next utterance, or choose "hangup" if the conver
 
   async _serveCampaign(healthCtx: HealthContext, campaignCode: string): Promise<void> {
     try {
-      const campaignUrl = new URL(`v1/campaigns/${campaignCode}`, this._client.getHttpBase());
-      const campaignResponse = await fetchOrThrow(campaignUrl, {
-        headers: await this._client.headers(),
-      });
-      const campaign = (await campaignResponse.json()) as { id: string; name: string };
+      const campaign = await this._client.getCampaign(campaignCode);
 
       const wsUrl = new URL(`v1/serve-campaign/${campaign.id}`, this._client.getWebsocketBase());
       this._logger.info("Connecting to campaign '%s' (id: %s).", campaign.name, campaign.id);

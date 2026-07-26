@@ -404,4 +404,13 @@ TASK COMPLETION REQUIREMENTS:
   async getVariable(variableName: string) {
     return this._variables[variableName] ?? null;
   }
+
+  // Aliases for setVariable / getVariable, matching the Python SDK.
+  async setVar(variableName: string, variableValue: any) {
+    return this.setVariable(variableName, variableValue);
+  }
+
+  async getVar(variableName: string) {
+    return this.getVariable(variableName);
+  }
 }

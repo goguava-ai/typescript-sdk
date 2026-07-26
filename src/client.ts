@@ -4,6 +4,7 @@ import os from "node:os";
 import * as fs from "node:fs";
 import { getBaseUrl, fetchOrThrow, sleep } from "./utils.ts";
 import { SmsMessage } from "./sms.ts";
+import { Campaign } from "./campaigns.ts";
 import { telemetryClient } from "./telemetry.ts";
 import {
   type AuthStrategy,
@@ -154,6 +155,40 @@ export class Client {
     });
     const body = (await response.json()) as { webrtc_code: string };
     return body.webrtc_code;
+  }
+
+  async createSipAgent(): Promise<string> {
+    const url = new URL("v1/sip-agents", this.getHttpBase());
+    const response = await fetchOrThrow(url, {
+      method: "POST",
+      headers: await this.headers(),
+    });
+    const body = (await response.json()) as { sip_code: string };
+    return body.sip_code;
+  }
+
+  /**
+   * Fetch an existing campaign by its code.
+   *
+   * @param campaignCode - The campaign code (e.g. `gcmp-...`).
+   */
+  async getCampaign(campaignCode: string): Promise<Campaign> {
+    const url = new URL(`v1/campaigns/${campaignCode}`, this.getHttpBase());
+    const response = await fetchOrThrow(url, { headers: await this.headers() });
+    const body = (await response.json()) as { id: string; campaign_code: string; name: string };
+    return new Campaign(this, body.id, body.campaign_code, body.name);
+  }
+
+  /** List all campaigns in your organization. */
+  async listCampaigns(): Promise<Campaign[]> {
+    const url = new URL("v1/campaigns", this.getHttpBase());
+    const response = await fetchOrThrow(url, { headers: await this.headers() });
+    const items = (await response.json()) as {
+      id: string;
+      campaign_code: string;
+      name: string;
+    }[];
+    return items.map((c) => new Campaign(this, c.id, c.campaign_code, c.name));
   }
 
   async listNumbers(): Promise<{ phoneNumber: string }[]> {

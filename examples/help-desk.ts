@@ -16,12 +16,15 @@ const documentQA = new DocumentQA({
   namespace: "clearfield-home-living-qa",
 });
 
-const intentRecognizer = new IntentRecognizer([
-  "sales",
-  "delivery-and-returns",
-  "account-management",
-  "other",
-]);
+const intentRecognizer = new IntentRecognizer({
+  sales:
+    "New purchases, product availability, pricing, promotions, price matching, store hours, order status, order changes and cancellations",
+  "delivery-and-returns":
+    "Delivery scheduling and rescheduling, installation, assembly, damaged-on-arrival items, returns, exchanges, refund status, warranty claims and repairs",
+  "account-management":
+    "Charges, invoices, payment plans, financing, billing disputes, rewards points, membership accounts, bulk and business orders",
+  other: "Anything else not listed under another category.",
+});
 
 agent.onQuestion(async (_call: guava.Call, question: string) => {
   return await documentQA.ask(question);

@@ -1,7 +1,7 @@
 import { type Server, createServer } from "node:http";
 import { getDefaultLogger, type Logger } from "./logging.ts";
 
-export type HealthState = "starting" | "live" | "stopped";
+export type HealthState = "starting" | "running" | "draining" | "stopped";
 
 export class HealthContext {
   private _state: HealthState = "starting";
@@ -11,7 +11,11 @@ export class HealthContext {
   }
 
   ready(): void {
-    this.setState("live");
+    this.setState("running");
+  }
+
+  draining(): void {
+    this.setState("draining");
   }
 
   stopped(): void {
@@ -19,7 +23,11 @@ export class HealthContext {
   }
 
   isLive(): boolean {
-    return this._state === "live";
+    return this._state !== "stopped";
+  }
+
+  isReady(): boolean {
+    return this._state === "running";
   }
 }
 
@@ -34,6 +42,10 @@ export class MultiHealthContext {
 
   isLive(): boolean {
     return this._ctxs.length > 0 && this._ctxs.every((ctx) => ctx.isLive());
+  }
+
+  isReady(): boolean {
+    return this._ctxs.length > 0 && this._ctxs.every((ctx) => ctx.isReady());
   }
 }
 
@@ -64,6 +76,8 @@ export class HealthServer implements AsyncDisposable {
     const server = createServer((req, res) => {
       if (req.method === "GET" && req.url === "/live") {
         res.statusCode = healthCtx.isLive() ? 200 : 503;
+      } else if (req.method === "GET" && req.url === "/ready") {
+        res.statusCode = healthCtx.isReady() ? 200 : 503;
       } else {
         res.statusCode = 404;
       }

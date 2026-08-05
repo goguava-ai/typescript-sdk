@@ -63,3 +63,41 @@ export async function fetchOrThrow(
 
   return res;
 }
+
+/** A Disposable whose disposal does nothing. Useful as a conditional no-op. */
+export const nullDisposable: Disposable = { [Symbol.dispose]() {} };
+
+export function onAbort(signal: AbortSignal, listener: () => void): Disposable {
+  signal.throwIfAborted();
+  signal.addEventListener("abort", listener, { once: true });
+
+  return {
+    [Symbol.dispose]() {
+      signal.removeEventListener("abort", listener);
+    },
+  };
+}
+
+export function onSignal(handler: (signal: "SIGINT" | "SIGTERM") => void): Disposable {
+  // Remove both handlers on the first signal so any second signal (of either
+  // type) falls through to Node's default behavior and terminates the process.
+  const remove = () => {
+    process.off("SIGINT", sigint);
+    process.off("SIGTERM", sigterm);
+  };
+  const sigint = () => {
+    remove();
+    handler("SIGINT");
+  };
+  const sigterm = () => {
+    remove();
+    handler("SIGTERM");
+  };
+
+  process.on("SIGINT", sigint);
+  process.on("SIGTERM", sigterm);
+
+  return {
+    [Symbol.dispose]: remove,
+  };
+}

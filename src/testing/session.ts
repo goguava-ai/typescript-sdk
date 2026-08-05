@@ -29,15 +29,17 @@ export class TestSession {
 
   executedActions: string[] = [];
   terminationReason: string | null = null;
+  readonly id: string;
 
   /** @internal */
   get _events(): ReadonlyArray<InjectASR | BotTTS> {
     return this._sessionEvents;
   }
 
-  constructor(ws: WebSocket, client: Client) {
+  constructor(ws: WebSocket, client: Client, id: string) {
     this._ws = ws;
     this._client = client;
+    this.id = id;
 
     ws.on("message", (data) => {
       let event: TestingEvent;

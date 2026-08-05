@@ -4,7 +4,7 @@ import { DocumentQA } from "@guava-ai/guava-sdk/helpers";
 import { PROPERTY_INSURANCE_POLICY } from "@guava-ai/guava-sdk/example-data";
 import { getAgentNumber } from "@guava-ai/guava-sdk/example-utils";
 
-const agent = new guava.Agent({
+export const agent = new guava.Agent({
   organization: "Harper Valley Property Insurance",
   purpose: "Answer questions regarding property insurance policy until there are no more questions",
 });

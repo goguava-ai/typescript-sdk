@@ -5,7 +5,7 @@ import { getAgentNumber } from "@guava-ai/guava-sdk/example-utils";
 
 const logger = getDefaultLogger();
 
-const agent = new guava.Agent({
+export const agent = new guava.Agent({
   name: "Mia",
   organization: "Thai Palace",
   purpose: "Helping callers join the restaurant waitlist",

@@ -34,7 +34,7 @@ import { runChat } from "./testing/chat.ts";
 import { SessionStarted } from "./testing/protocol.ts";
 import { TestSession } from "./testing/session.ts";
 import * as z from "zod";
-import { fetchOrThrow, getBaseUrl } from "./utils.ts";
+import { fetchOrThrow, getBaseUrl, onAbort } from "./utils.ts";
 import { runWebrtcHelper } from "./webrtc-helper.ts";
 
 export const _roleplayActionSchema = z.object({
@@ -580,6 +580,7 @@ export class Agent {
     healthCtx: HealthContext,
     conn: InboundConnection,
     initialVariables: Record<string, any> = {},
+    drainSignal: AbortSignal = new AbortController().signal,
   ): Promise<void> {
     const url = new URL("v2/listen-inbound", this._client.getWebsocketBase());
     if ("agent_number" in conn) {
@@ -589,6 +590,8 @@ export class Agent {
     } else {
       url.searchParams.set("sip_code", conn.sip_code);
     }
+
+    const activeCalls: Promise<void>[] = [];
 
     try {
       await using socket = await new GuavaSocket<
@@ -601,6 +604,10 @@ export class Agent {
         (msg) => msg as unknown as Record<string, unknown>,
         ListenInbound.decodeServerMessage,
       ).connect();
+
+      using _ = onAbort(drainSignal, () => {
+        socket.close();
+      });
 
       try {
         for await (const msg of socket) {
@@ -638,10 +645,13 @@ export class Agent {
             case "assign-call": {
               const { call_id, call_info } = msg;
               this._logger.info("Received call (session ID: %s)", call_id);
-              this._handleAssignedCall(call_id, call_info, socket, initialVariables).catch(
-                (err) => {
-                  this._logger.error("Error handling assigned call %s: %s", call_id, err);
-                },
+              // TODO: Possible memory leak.
+              activeCalls.push(
+                this._handleAssignedCall(call_id, call_info, socket, initialVariables).catch(
+                  (err) => {
+                    this._logger.error("Error handling assigned call %s: %s", call_id, err);
+                  },
+                ),
               );
               break;
             }
@@ -651,6 +661,10 @@ export class Agent {
         if (!(e instanceof GuavaSocketClosedError)) throw e;
       }
     } finally {
+      this._logger.debug("Listener disconnected. Starting drain...");
+      healthCtx.draining();
+      await Promise.all(activeCalls);
+
       healthCtx.stopped();
     }
   }
@@ -735,7 +749,7 @@ export class Agent {
     });
 
     const sessionStarted = SessionStarted.parse(JSON.parse(rawFirst));
-    const testSession = new TestSession(ws, this._client);
+    const testSession = new TestSession(ws, this._client, sessionStarted.session_id);
 
     const testCallInfo: CallInfo = {
       call_type: "pstn",
@@ -898,24 +912,32 @@ Choose "speak" and provide your next utterance, or choose "hangup" if the conver
     return cloned;
   }
 
-  async _serveCampaign(healthCtx: HealthContext, campaignCode: string): Promise<void> {
+  async _serveCampaign(
+    healthCtx: HealthContext,
+    campaignCode: string,
+    drainSignal: AbortSignal = new AbortController().signal,
+  ): Promise<void> {
+    const campaign = await this._client.getCampaign(campaignCode);
+
+    const url = new URL(`v1/serve-campaign/${campaign.id}`, this._client.getWebsocketBase());
+    this._logger.info("Connecting to campaign '%s' (id: %s).", campaign.name, campaign.id);
+
+    const activeCalls: Promise<void>[] = [];
+
     try {
-      const campaign = await this._client.getCampaign(campaignCode);
-
-      const wsUrl = new URL(`v1/serve-campaign/${campaign.id}`, this._client.getWebsocketBase());
-      this._logger.info("Connecting to campaign '%s' (id: %s).", campaign.name, campaign.id);
-
       await using socket = await new GuavaSocket<DialerClientMessage, DialerServerMessage>(
         "serve-campaign",
-        wsUrl.toString(),
+        url.toString(),
         this._client,
         (msg) => msg as unknown as Record<string, unknown>,
         decodeDialerServerMessage,
       ).connect();
 
-      const activeCalls: Promise<void>[] = [];
-
       try {
+        using _ = onAbort(drainSignal, () => {
+          socket.close();
+        });
+
         for await (const msg of socket) {
           switch (msg.message_type) {
             case "listen-started":
@@ -931,6 +953,7 @@ Choose "speak" and provide your next utterance, or choose "hangup" if the conver
                 call_id,
                 logPhone,
               );
+              // TODO: Possible memory leak.
               activeCalls.push(
                 (async () => {
                   socket.send({ message_type: "controller-ready", call_id });
@@ -948,7 +971,9 @@ Choose "speak" and provide your next utterance, or choose "hangup" if the conver
                     undefined,
                     "v2/connect-campaign-call",
                   );
-                })(),
+                })().catch((err) => {
+                  this._logger.error("Error handling campaign call %s: %s", call_id, err);
+                }),
               );
               break;
             }
@@ -956,11 +981,11 @@ Choose "speak" and provide your next utterance, or choose "hangup" if the conver
         }
       } catch (e) {
         if (!(e instanceof GuavaSocketClosedError)) throw e;
-        this._logger.info("Campaign '%s' disconnected.", campaign.name);
       }
-
-      await Promise.all(activeCalls);
     } finally {
+      this._logger.info("Campaign '%s' disconnected. Starting drain...", campaign.name);
+      healthCtx.draining();
+      await Promise.all(activeCalls);
       healthCtx.stopped();
     }
   }

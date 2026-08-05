@@ -49,6 +49,16 @@ export class GuavaSocketConnectionFailed extends Error {
   }
 }
 
+/** Raised when the server rejects the websocket handshake with an HTTP response. */
+class UnexpectedResponseError extends Error {
+  constructor(
+    readonly statusCode: number | undefined,
+    readonly body: string,
+  ) {
+    super(`Unexpected server response: ${statusCode ?? "unknown"}. Body: ${body || "<empty>"}`);
+  }
+}
+
 const HandshakeResponse = z.union([GuavaOpenAck, GuavaClose]);
 
 function _sendMessage(ws: WebSocket, message: GuavaClientMessage): void {
@@ -160,13 +170,7 @@ export class GuavaSocket<SendT, RecvT> {
               body += chunk.toString();
             });
             res.on("end", () => {
-              settle(() =>
-                reject(
-                  new Error(
-                    `Unexpected server response: ${res.statusCode}. Body: ${body || "<empty>"}`,
-                  ),
-                ),
-              );
+              settle(() => reject(new UnexpectedResponseError(res.statusCode, body)));
             });
           });
           socket.once("close", () =>
@@ -225,6 +229,7 @@ export class GuavaSocket<SendT, RecvT> {
         if (e instanceof GuavaSocketClosedError) throw e;
 
         if (attempt >= MAX_RECONNECT_ATTEMPTS) {
+          this._logger.error("Couldn't connect to server after %d attempts.", attempt);
           this._setCloseReason(
             "reconnection-failed",
             `Couldn't connect after ${attempt} attempts.`,
@@ -232,12 +237,25 @@ export class GuavaSocket<SendT, RecvT> {
           throw new GuavaSocketConnectionFailed();
         }
 
-        this._logger.error(
-          "Failed to connect (attempt %d/%d). Retrying in a few seconds...\n",
-          attempt,
-          MAX_RECONNECT_ATTEMPTS,
-          e,
-        );
+        if (e instanceof UnexpectedResponseError) {
+          const interpretation =
+            e.statusCode === 401 || e.statusCode === 403 ? "Authentication Failure" : "HTTP error";
+          this._logger.error(
+            "Failed to connect to websocket endpoint %s due to %s. HTTP %s, Body: %s. Retrying in a few seconds...",
+            this._connectionUrl,
+            interpretation,
+            e.statusCode ?? "unknown",
+            e.body || "No response body.",
+          );
+        } else {
+          this._logger.error(
+            "Failed to connect to %s (attempt %d/%d). Retrying in a few seconds...\n",
+            this._connectionUrl,
+            attempt,
+            MAX_RECONNECT_ATTEMPTS,
+            e,
+          );
+        }
         await sleep(reconnectDelay(attempt));
       }
     }

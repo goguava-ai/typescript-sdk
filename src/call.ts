@@ -237,6 +237,15 @@ export class Call {
     });
   }
 
+  /**
+   * Transfer the call to another destination.
+   *
+   * This method does not interfere with turn-taking — use this when
+   * you want the agent to naturally transfer the call.
+   *
+   * @param destination - The phone number or SIP address to transfer the call to.
+   * @param instructions - Optional guidance for how the agent should handle the transfer.
+   */
   async transfer(destination: string, instructions?: string) {
     await this.sendCommand(TransferCommand, {
       command_type: "transfer-call",
@@ -244,6 +253,25 @@ export class Call {
       transfer_message:
         instructions ?? "Notify the caller that you will be transferring them, and then transfer.",
       soft_transfer: true,
+    });
+  }
+
+  /**
+   * Transfer the call immediately.
+   *
+   * Unlike transfer(), this does not respect turn-taking. The agent immediately
+   * initiates the transfer, saying the script (if provided).
+   *
+   * @param destination - The phone number or SIP address to transfer the call to.
+   * @param finalScript - Optional message for the agent to deliver immediately
+   *   before transferring. Defaults to no message.
+   */
+  async immediateTransfer(destination: string, finalScript?: string) {
+    await this.sendCommand(TransferCommand, {
+      command_type: "transfer-call",
+      to_number: destination,
+      transfer_message: finalScript ?? "",
+      soft_transfer: false,
     });
   }
 

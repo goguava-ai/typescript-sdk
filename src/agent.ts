@@ -62,6 +62,7 @@ export class Agent {
   private _organization?: string;
   private _purpose?: string;
   private _voice?: string;
+  private _ttsReplacements?: Record<string, string>;
   private _acceptDtmfForNumbers: boolean;
   private _logger: Logger;
 
@@ -100,12 +101,14 @@ export class Agent {
     organization?: string;
     purpose?: string;
     voice?: string;
+    pronunciations?: Record<string, string>;
     acceptDtmf?: boolean;
   }) {
     this._name = args?.name;
     this._organization = args?.organization;
     this._purpose = args?.purpose;
     this._voice = args?.voice;
+    this._ttsReplacements = args?.pronunciations;
     this._acceptDtmfForNumbers = args?.acceptDtmf ?? true;
     this._logger = getDefaultLogger();
   }
@@ -520,6 +523,7 @@ export class Agent {
       agentPurpose: this._purpose,
       organizationName: this._organization,
       voice: this._voice,
+      pronunciations: this._ttsReplacements,
     });
     await call.sendCommand(RegisteredHooksCommand, {
       command_type: "registered-hooks",
@@ -891,6 +895,7 @@ Choose "speak" and provide your next utterance, or choose "hangup" if the conver
       organization: this._organization,
       purpose: this._purpose,
       voice: this._voice,
+      pronunciations: this._ttsReplacements,
       acceptDtmf: this._acceptDtmfForNumbers,
     });
     cloned._onCallReceived = this._onCallReceived;

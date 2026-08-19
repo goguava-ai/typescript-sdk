@@ -180,6 +180,7 @@ export class Call {
     agentName?: string;
     agentPurpose?: string;
     voice?: string;
+    pronunciations?: Record<string, string>;
   }) {
     await this.sendCommand(SetPersona, {
       command_type: "set-persona",
@@ -187,6 +188,7 @@ export class Call {
       agent_name: args.agentName,
       agent_purpose: args.agentPurpose,
       voice: args.voice,
+      tts_replacements: args.pronunciations,
     });
   }
 

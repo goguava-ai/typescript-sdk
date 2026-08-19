@@ -63,6 +63,7 @@ export const SetPersona = z.strictObject({
   organization_name: z.string().optional(),
   agent_purpose: z.string().optional(),
   voice: z.string().optional(),
+  tts_replacements: z.record(z.string().min(1), z.string()).optional(),
 });
 export type SetPersona = z.input<typeof SetPersona>;
 

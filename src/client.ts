@@ -173,7 +173,7 @@ export class Client {
    * @param campaignCode - The campaign code (e.g. `gcmp-...`).
    */
   async getCampaign(campaignCode: string): Promise<Campaign> {
-    const url = new URL(`v1/campaigns/${campaignCode}`, this.getHttpBase());
+    const url = new URL(`v2/campaigns/${campaignCode}`, this.getHttpBase());
     const response = await fetchOrThrow(url, { headers: await this.headers() });
     const body = (await response.json()) as { id: string; campaign_code: string; name: string };
     return new Campaign(this, body.id, body.campaign_code, body.name);
@@ -181,7 +181,7 @@ export class Client {
 
   /** List all campaigns in your organization. */
   async listCampaigns(): Promise<Campaign[]> {
-    const url = new URL("v1/campaigns", this.getHttpBase());
+    const url = new URL("v2/campaigns", this.getHttpBase());
     const response = await fetchOrThrow(url, { headers: await this.headers() });
     const items = (await response.json()) as {
       id: string;

@@ -138,7 +138,7 @@ export class Campaign {
 
   /** Fetch the current status of this campaign. */
   async getStatus(): Promise<CampaignStatus> {
-    const url = new URL(`v1/campaigns/${this._id}/status`, this._client.getHttpBase());
+    const url = new URL(`v2/campaigns/${this._code}/status`, this._client.getHttpBase());
     const response = await fetchOrThrow(url, { headers: await this._client.headers() });
     const { status_counts } = CampaignStatusWire.parse(await response.json());
     return { statusCounts: status_counts };
@@ -146,7 +146,7 @@ export class Campaign {
 
   /** Permanently delete this campaign. */
   async delete(): Promise<void> {
-    const url = new URL(`v1/campaigns/${this._id}`, this._client.getHttpBase());
+    const url = new URL(`v2/campaigns/${this._code}`, this._client.getHttpBase());
     await fetchOrThrow(url, { method: "DELETE", headers: await this._client.headers() });
   }
 

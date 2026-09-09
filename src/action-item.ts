@@ -5,11 +5,13 @@ export const FieldItemType = z.union(
     [
       "text",
       "date",
+      "datetime",
       "integer",
       "digit_sequence",
       "multiple_choice",
       "calendar_slot",
       "cvv",
+      "credit_card_number",
     ] as const
   ).map((val) => z.literal(val)),
 );

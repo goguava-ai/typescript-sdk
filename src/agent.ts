@@ -94,7 +94,7 @@ export class Agent {
   private _onSessionEnd?: (call: Call, event: BotSessionEnded) => Promise<void>;
   private _onEscalate?: (call: Call, event: EscalateEvent) => Promise<void>;
   private _onDtmf?: (call: Call, event: DTMFPressedEvent) => Promise<void>;
-  private _onOutboundFailed?: (event: OutboundCallFailed) => Promise<void>;
+  private _onOutboundFailed?: (call: Call, event: OutboundCallFailed) => Promise<void>;
 
   constructor(args?: {
     name?: string;
@@ -200,7 +200,7 @@ export class Agent {
     this._onDtmf = callback;
   }
 
-  onOutboundFailed(callback: (event: OutboundCallFailed) => Promise<void>): void {
+  onOutboundFailed(callback: (call: Call, event: OutboundCallFailed) => Promise<void>): void {
     this._onOutboundFailed = callback;
   }
 
@@ -260,7 +260,7 @@ export class Agent {
   async listenPhone(phoneNumber: string): Promise<void> {
     const healthCtx = new HealthContext();
     await using _server = await getHealthServer(healthCtx);
-    return this._listenInbound(healthCtx, { agent_number: phoneNumber });
+    return await this._listenInbound(healthCtx, { agent_number: phoneNumber });
   }
 
   async listenWebrtc(webrtcCode?: string): Promise<void> {
@@ -270,13 +270,13 @@ export class Agent {
     }
     const healthCtx = new HealthContext();
     await using _server = await getHealthServer(healthCtx);
-    return this._listenInbound(healthCtx, { webrtc_code: webrtcCode });
+    return await this._listenInbound(healthCtx, { webrtc_code: webrtcCode });
   }
 
   async listenSip(sipCode: string): Promise<void> {
     const healthCtx = new HealthContext();
     await using _server = await getHealthServer(healthCtx);
-    return this._listenInbound(healthCtx, { sip_code: sipCode });
+    return await this._listenInbound(healthCtx, { sip_code: sipCode });
   }
 
   async callLocal(variables: Record<string, any> = {}): Promise<void> {
@@ -502,7 +502,7 @@ export class Agent {
       this._logger.error(`Outbound call failed: ${event.error_reason}`);
       if (this._onOutboundFailed !== undefined) {
         await this._invokeHandler(call, "onOutboundFailed", false, () =>
-          this._onOutboundFailed!(event),
+          this._onOutboundFailed!(call, event),
         );
       }
     } else if (event.event_type === "error") {
@@ -1009,7 +1009,7 @@ Choose "speak" and provide your next utterance, or choose "hangup" if the conver
   async attachCampaign(campaignCode: string): Promise<void> {
     const healthCtx = new HealthContext();
     await using _server = await getHealthServer(healthCtx);
-    return this._serveCampaign(healthCtx, campaignCode);
+    return await this._serveCampaign(healthCtx, campaignCode);
   }
 
   /* ===== Aliases to be removed at some point. ===== */

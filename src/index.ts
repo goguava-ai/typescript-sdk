@@ -14,6 +14,12 @@ export { Logger, getConsoleLogger, getDefaultLogger } from "./logging.ts";
 export { Agent, CallInfo } from "./agent.ts";
 export { Call, DEFAULT_REACH_PERSON_OUTCOMES } from "./call.ts";
 export type { ReachPersonOutcome } from "./call.ts";
-export type { BotSessionEnded, TerminationReason, DTMFPressedEvent, DTMFDigit } from "./events.ts";
+export type {
+  BotSessionEnded,
+  TerminationReason,
+  DTMFPressedEvent,
+  DTMFDigit,
+  OutboundCallFailed,
+} from "./events.ts";
 export { TestSession } from "./testing/session.ts";
 export { MockCall } from "./testing/mocks.ts";

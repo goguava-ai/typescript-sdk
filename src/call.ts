@@ -2,6 +2,7 @@ import { type Logger, getDefaultLogger } from "./logging.ts";
 import {
   type Command,
   SetPersona,
+  type SpeedPreset,
   SetLanguageModeCommand,
   type Language,
   SetTaskCommand,
@@ -180,6 +181,7 @@ export class Call {
     agentName?: string;
     agentPurpose?: string;
     voice?: string;
+    speechSpeed?: SpeedPreset;
     pronunciations?: Record<string, string>;
   }) {
     await this.sendCommand(SetPersona, {
@@ -188,6 +190,7 @@ export class Call {
       agent_name: args.agentName,
       agent_purpose: args.agentPurpose,
       voice: args.voice,
+      tts_speed: args.speechSpeed,
       tts_replacements: args.pronunciations,
     });
   }

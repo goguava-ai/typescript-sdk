@@ -7,3 +7,4 @@
 - [property-insurance.ts](./property-insurance.ts) - Inbound call agent for a property insurance company that uses `DocumentQA` to answer policy questions from a knowledge base.
 - [restaurant-waitlist.ts](./restaurant-waitlist.ts) - Inbound call agent for a restaurant that collects caller name, party size, and phone number to add callers to a waitlist using a structured task.
 - [scheduling-outbound.ts](./scheduling-outbound.ts) - Outbound call agent for a dental office that uses `reachPerson` to confirm contact availability, then schedules appointments using a searchable calendar-slot field backed by `DatetimeFilter`.
+- [slow-speech.ts](./slow-speech.ts) - Minimal inbound agent that sets `speechSpeed` so the agent speaks at a slower pace, with a simple `onQuestion` handler.

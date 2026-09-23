@@ -99,6 +99,7 @@ export const BotSessionEnded = z.object({
     "voicemail",
   ]),
   dnc: z.boolean().default(false),
+  pickup: z.boolean().default(true),
 });
 export type BotSessionEnded = z.infer<typeof BotSessionEnded>;
 
@@ -153,6 +154,17 @@ export const DTMFPressedEvent = z.object({
 });
 export type DTMFPressedEvent = z.infer<typeof DTMFPressedEvent>;
 
+/**
+ * The agent pressed DTMF digits, either on its own after `call.setAgentDtmf(true)`
+ * or because the developer called `call.sendDtmf(...)`; `requested_by` says which.
+ */
+export const AgentDTMFSentEvent = z.object({
+  event_type: z.literal("agent-dtmf"),
+  digits: z.array(z.enum(DTMF_DIGITS)),
+  requested_by: z.enum(["agent", "developer"]).default("agent"),
+});
+export type AgentDTMFSentEvent = z.infer<typeof AgentDTMFSentEvent>;
+
 export const EscalateEvent = z.object({
   event_type: z.literal("escalate"),
   requested_by: z.enum(["human", "agent"]).default("human"),
@@ -178,6 +190,7 @@ export const GuavaEvent = z.discriminatedUnion("event_type", [
   ExecuteActionEvent,
   EscalateEvent,
   DTMFPressedEvent,
+  AgentDTMFSentEvent,
 ]);
 export type GuavaEvent = z.infer<typeof GuavaEvent>;
 

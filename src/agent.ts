@@ -6,8 +6,11 @@ import {
   type Command,
   ExpertErrorCommand,
   RegisteredHooksCommand,
+  type SpeedPreset,
+  validateSpeedPreset,
 } from "./commands.ts";
 import {
+  type AgentDTMFSentEvent,
   type AgentSpeechEvent,
   type BotSessionEnded,
   type CallerSpeechEvent,
@@ -63,6 +66,7 @@ export class Agent {
   private _purpose?: string;
   private _voice?: string;
   private _ttsReplacements?: Record<string, string>;
+  private _speechSpeed?: SpeedPreset;
   private _acceptDtmfForNumbers: boolean;
   private _logger: Logger;
 
@@ -93,7 +97,8 @@ export class Agent {
   > = {};
   private _onSessionEnd?: (call: Call, event: BotSessionEnded) => Promise<void>;
   private _onEscalate?: (call: Call, event: EscalateEvent) => Promise<void>;
-  private _onDtmf?: (call: Call, event: DTMFPressedEvent) => Promise<void>;
+  private _onCallerDtmf?: (call: Call, event: DTMFPressedEvent) => Promise<void>;
+  private _onAgentDtmf?: (call: Call, event: AgentDTMFSentEvent) => Promise<void>;
   private _onOutboundFailed?: (call: Call, event: OutboundCallFailed) => Promise<void>;
 
   constructor(args?: {
@@ -103,6 +108,7 @@ export class Agent {
     voice?: string;
     pronunciations?: Record<string, string>;
     acceptDtmf?: boolean;
+    speechSpeed?: SpeedPreset;
   }) {
     this._name = args?.name;
     this._organization = args?.organization;
@@ -110,6 +116,8 @@ export class Agent {
     this._voice = args?.voice;
     this._ttsReplacements = args?.pronunciations;
     this._acceptDtmfForNumbers = args?.acceptDtmf ?? true;
+    validateSpeedPreset(args?.speechSpeed); // Validate the preset name early, at construction.
+    this._speechSpeed = args?.speechSpeed;
     this._logger = getDefaultLogger();
   }
 
@@ -196,8 +204,17 @@ export class Agent {
     this._onEscalate = callback;
   }
 
+  onCallerDtmf(callback: (call: Call, event: DTMFPressedEvent) => Promise<void>): void {
+    this._onCallerDtmf = callback;
+  }
+
+  /** Alias for {@link onCallerDtmf}; will be marked deprecated in a future release. */
   onDtmf(callback: (call: Call, event: DTMFPressedEvent) => Promise<void>): void {
-    this._onDtmf = callback;
+    this._onCallerDtmf = callback;
+  }
+
+  onAgentDtmf(callback: (call: Call, event: AgentDTMFSentEvent) => Promise<void>): void {
+    this._onAgentDtmf = callback;
   }
 
   onOutboundFailed(callback: (call: Call, event: OutboundCallFailed) => Promise<void>): void {
@@ -483,8 +500,16 @@ export class Agent {
         );
       }
     } else if (event.event_type === "dtmf") {
-      if (this._onDtmf !== undefined) {
-        await this._invokeHandler(call, "onDtmf", false, () => this._onDtmf!(call, event));
+      if (this._onCallerDtmf !== undefined) {
+        await this._invokeHandler(call, "onCallerDtmf", false, () =>
+          this._onCallerDtmf!(call, event),
+        );
+      }
+    } else if (event.event_type === "agent-dtmf") {
+      if (this._onAgentDtmf !== undefined) {
+        await this._invokeHandler(call, "onAgentDtmf", false, () =>
+          this._onAgentDtmf!(call, event),
+        );
       }
     } else if (event.event_type === "escalate") {
       if (this._onEscalate !== undefined) {
@@ -523,6 +548,7 @@ export class Agent {
       agentPurpose: this._purpose,
       organizationName: this._organization,
       voice: this._voice,
+      speechSpeed: this._speechSpeed,
       pronunciations: this._ttsReplacements,
     });
     await call.sendCommand(RegisteredHooksCommand, {
@@ -532,6 +558,7 @@ export class Agent {
       has_on_action_requested: this._onActionRequested !== undefined,
       has_on_escalate: this._onEscalate !== undefined,
       accept_dtmf_for_numbers: this._acceptDtmfForNumbers,
+      has_on_agent_dtmf: this._onAgentDtmf !== undefined,
     });
     if (this._onCallStart !== undefined) {
       await this._onCallStart(call);
@@ -897,6 +924,7 @@ Choose "speak" and provide your next utterance, or choose "hangup" if the conver
       voice: this._voice,
       pronunciations: this._ttsReplacements,
       acceptDtmf: this._acceptDtmfForNumbers,
+      speechSpeed: this._speechSpeed,
     });
     cloned._onCallReceived = this._onCallReceived;
     cloned._onCallStart = this._onCallStart;
@@ -912,7 +940,8 @@ Choose "speak" and provide your next utterance, or choose "hangup" if the conver
     cloned._onActionHandlers = { ...this._onActionHandlers };
     cloned._onSessionEnd = this._onSessionEnd;
     cloned._onEscalate = this._onEscalate;
-    cloned._onDtmf = this._onDtmf;
+    cloned._onCallerDtmf = this._onCallerDtmf;
+    cloned._onAgentDtmf = this._onAgentDtmf;
     cloned._onOutboundFailed = this._onOutboundFailed;
     return cloned;
   }

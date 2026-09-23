@@ -138,6 +138,10 @@ const EXAMPLES: Record<string, ExampleEntry> = {
     description: "Run two agents simultaneously using Runner",
     load: () => import("../examples/multiple-agents"),
   },
+  "slow-speech": {
+    description: "Inbound agent that speaks at a slower speed preset",
+    load: () => import("../examples/slow-speech"),
+  },
   "agent-testing": {
     description: "Run agent unit tests and conversation simulations",
     load: async () => ({ run: runAgentTesting }),

@@ -57,12 +57,27 @@ export const AnswerQuestionCommand = z.strictObject({
 });
 export type AnswerQuestionCommand = z.input<typeof AnswerQuestionCommand>;
 
+export const SpeedPreset = z.enum(["x-slow", "slow", "medium", "fast", "x-fast"]);
+export type SpeedPreset = z.infer<typeof SpeedPreset>;
+
+/**
+ * @description throw on an unrecognized speech speed preset, with the valid presets listed
+ */
+export function validateSpeedPreset(speed: unknown): void {
+  if (speed !== undefined && !SpeedPreset.safeParse(speed).success) {
+    throw new Error(
+      `speechSpeed must be one of ${JSON.stringify(SpeedPreset.options)} (got ${JSON.stringify(speed)}).`,
+    );
+  }
+}
+
 export const SetPersona = z.strictObject({
   command_type: z.literal("set-persona"),
   agent_name: z.string().optional(),
   organization_name: z.string().optional(),
   agent_purpose: z.string().optional(),
   voice: z.string().optional(),
+  tts_speed: SpeedPreset.optional(),
   tts_replacements: z.record(z.string().min(1), z.string()).optional(),
 });
 export type SetPersona = z.input<typeof SetPersona>;
@@ -98,6 +113,7 @@ export const RegisteredHooksCommand = z.strictObject({
   has_on_action_requested: z.boolean().optional().default(false),
   has_on_escalate: z.boolean().optional().default(false),
   accept_dtmf_for_numbers: z.boolean().default(true),
+  has_on_agent_dtmf: z.boolean().optional().default(false),
 });
 export type RegisteredHooksCommand = z.input<typeof RegisteredHooksCommand>;
 

@@ -12,6 +12,7 @@ export type {
 export { Say, Field } from "./action-item.ts";
 export { Logger, getConsoleLogger, getDefaultLogger } from "./logging.ts";
 export { Agent, CallInfo } from "./agent.ts";
+export { SIPCallInfo } from "./socket/call-info.ts";
 export { Call, DEFAULT_REACH_PERSON_OUTCOMES } from "./call.ts";
 export type { ReachPersonOutcome } from "./call.ts";
 export type { SpeedPreset, Language } from "./commands.ts";

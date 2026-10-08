@@ -25,6 +25,7 @@ import type {
 import { Say } from "./action-item.ts";
 import { telemetryClient } from "./telemetry.ts";
 import type { CallInfo } from "./socket/call-info.ts";
+import type { SipUri } from "./sip.ts";
 
 export type TaskObjective =
   | { objective: string }
@@ -248,13 +249,13 @@ export class Call {
    * This method does not interfere with turn-taking — use this when
    * you want the agent to naturally transfer the call.
    *
-   * @param destination - The phone number or SIP address to transfer the call to.
+   * @param destination - The phone number, SIP address, or SipUri to transfer the call to.
    * @param instructions - Optional guidance for how the agent should handle the transfer.
    */
-  async transfer(destination: string, instructions?: string) {
+  async transfer(destination: string | SipUri, instructions?: string) {
     await this.sendCommand(TransferCommand, {
       command_type: "transfer-call",
-      to_number: destination,
+      to_number: destination.toString(),
       transfer_message:
         instructions ?? "Notify the caller that you will be transferring them, and then transfer.",
       soft_transfer: true,
@@ -267,14 +268,14 @@ export class Call {
    * Unlike transfer(), this does not respect turn-taking. The agent immediately
    * initiates the transfer, saying the script (if provided).
    *
-   * @param destination - The phone number or SIP address to transfer the call to.
+   * @param destination - The phone number, SIP address, or SipUri to transfer the call to.
    * @param finalScript - Optional message for the agent to deliver immediately
    *   before transferring. Defaults to no message.
    */
-  async immediateTransfer(destination: string, finalScript?: string) {
+  async immediateTransfer(destination: string | SipUri, finalScript?: string) {
     await this.sendCommand(TransferCommand, {
       command_type: "transfer-call",
-      to_number: destination,
+      to_number: destination.toString(),
       transfer_message: finalScript ?? "",
       soft_transfer: false,
     });

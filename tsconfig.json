@@ -18,6 +18,7 @@
       "@guava-ai/guava-sdk/example-utils": ["./src/example-utils.ts"],
       "@guava-ai/guava-sdk/helpers": ["./src/helpers/index.ts"],
       "@guava-ai/guava-sdk/helpers/openai": ["./src/helpers/openai.ts"],
+      "@guava-ai/guava-sdk/webrtc": ["./src/webrtc/index.ts"],
       "@guava-ai/guava-sdk/examples/help-desk": ["./examples/help-desk.ts"]
     }
   },

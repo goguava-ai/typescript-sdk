@@ -1,7 +1,7 @@
 # Guava Typescript SDK
 [![NPM Version](https://img.shields.io/npm/v/%40guava-ai%2Fguava-sdk)](https://www.npmjs.com/package/@guava-ai/guava-sdk)
 
-This library allows you to build Guava voice agents using TypeScript or Javascript. Currently only NodeJS is officially supported as a runtime.
+This library allows you to build Guava voice agents using TypeScript or Javascript. Currently only NodeJS is officially supported as a runtime for the main SDK. The WebRTC portion of the SDK can be used from the browser.
 
 ## Documentation
 
@@ -41,3 +41,45 @@ $ pnpm add @guava-ai/guava-sdk
 ```
 
 The SDK can be used with Javascript, but TypeScript is highly recommended.
+
+## Using WebRTC from the Browser
+
+To call your agent from the browser with a bundler, install the SDK as above and import from `@guava-ai/guava-sdk/webrtc`.
+
+```typescript
+import * as Guava from "@guava-ai/guava-sdk/webrtc";
+
+const call = new Guava.Call({ webrtcCode: "..." });
+await call.start();
+```
+
+You can also load a prebuilt bundle from a CDN.
+
+```html
+<script
+  src="https://cdn.jsdelivr.net/npm/@guava-ai/guava-sdk@0.38.0/dist/guava-webrtc.min.js"
+  integrity="sha384-6MN0aBFnGuNmEmoeTtbYR4z0Irx2sJ26LYWjUOUyrKlAnAugcZRQOIpnpNz3zAo5"
+  crossorigin="anonymous"
+></script>
+<script>
+  const call = new Guava.Call({ webrtcCode: "..." });
+  call.start();
+</script>
+```
+
+Or as an ES module:
+
+```html
+<script type="importmap">
+  {
+    "integrity": {
+      "https://cdn.jsdelivr.net/npm/@guava-ai/guava-sdk@0.38.0/dist/guava-webrtc.esm.min.js": "sha384-qnseWbldkzYVfnszRGXZuEDW2mg62vnYWLJpAk8wjfFdt+g0qBhvU4b1wnYVvkMJ"
+    }
+  }
+</script>
+<script type="module">
+  import * as Guava from "https://cdn.jsdelivr.net/npm/@guava-ai/guava-sdk@0.38.0/dist/guava-webrtc.esm.min.js";
+  const call = new Guava.Call({ webrtcCode: "..." });
+  await call.start();
+</script>
+```

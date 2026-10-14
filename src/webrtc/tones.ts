@@ -68,7 +68,7 @@ export class JingleTone implements ConnectingTone {
   private nextBarStart = 0;
 
   // Configuration
-  private readonly volume = 0.25;
+  private readonly volume = 0.3;
   private readonly bpm = 120;
   private readonly beatsPerBar = 4;
   // Delay before the first note, so near-instant connections stay silent.
@@ -196,5 +196,89 @@ export class JingleTone implements ConnectingTone {
       oscillator.disconnect();
       envelope.disconnect();
     };
+  }
+}
+
+export interface Tone {
+  play(): void;
+}
+
+export class LeavingTone implements Tone {
+  public play(): void {
+    const ctx = new AudioContext();
+
+    if (ctx.state === "suspended") {
+      void ctx.resume();
+    }
+
+    const now = ctx.currentTime;
+
+    // First note: D4
+    const first = this.playNote(ctx, {
+      frequency: 293.665,
+      startTime: now,
+      attack: 0.065,
+      decay: 0.085,
+      volume: 0.2,
+    });
+
+    // Second note: A3, starts 139ms later
+    const second = this.playNote(ctx, {
+      frequency: 220.0,
+      startTime: now + 0.139,
+      attack: 0.018,
+      decay: 0.075,
+      volume: 0.2,
+    });
+
+    void Promise.all([first, second]).then(() => ctx.close());
+  }
+
+  // Resolves once the note has finished playing.
+  private playNote(
+    ctx: AudioContext,
+    {
+      frequency,
+      startTime,
+      attack,
+      decay,
+      volume,
+    }: {
+      frequency: number;
+      startTime: number;
+      attack: number;
+      decay: number;
+      volume: number;
+    },
+  ): Promise<void> {
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(frequency, startTime);
+
+    // Smooth onset
+    gain.gain.setValueAtTime(0, startTime);
+    gain.gain.linearRampToValueAtTime(volume, startTime + attack);
+
+    // Exponential decay
+    const peakTime = startTime + attack;
+    const endTime = peakTime + decay * 5;
+
+    gain.gain.setTargetAtTime(0.00001, peakTime, decay);
+
+    oscillator.connect(gain);
+    gain.connect(ctx.destination);
+
+    oscillator.start(startTime);
+    oscillator.stop(endTime);
+
+    return new Promise((resolve) => {
+      oscillator.onended = () => {
+        oscillator.disconnect();
+        gain.disconnect();
+        resolve();
+      };
+    });
   }
 }

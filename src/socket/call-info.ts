@@ -11,6 +11,7 @@ export type PSTNCallInfo = z.infer<typeof PSTNCallInfo>;
 export const WebRTCCallInfo = z.object({
   call_type: z.literal("webrtc"),
   webrtc_code: z.string(),
+  custom_payload: z.record(z.string(), z.unknown()).default({}),
 });
 export type WebRTCCallInfo = z.infer<typeof WebRTCCallInfo>;
 

@@ -1,6 +1,6 @@
-import { type ConnectingTone, JingleTone } from "./tones.ts";
+import { type ConnectingTone, JingleTone, LeavingTone, type Tone } from "./tones.ts";
 
-export { type ConnectingTone, JingleTone, RingbackTone } from "./tones.ts";
+export { type ConnectingTone, JingleTone, RingbackTone, LeavingTone, type Tone } from "./tones.ts";
 
 export type CallState =
   | "not-started" // start() hasn't been called yet.
@@ -16,7 +16,8 @@ export type CallErrorCode =
   | "AUTHENTICATION_FAILED"
   | "PROTOCOL_ERROR" // The server sent an unexpected message.
   | "SERVER_ERROR" // The server sent an error message.
-  | "REMOTE_HANGUP"; // The remote hung up before the call connected.
+  | "REMOTE_HANGUP" // The remote hung up before the call connected.
+  | "CONNECTION_TIMEOUT"; // The call didn't connect within connectionTimeoutMs.
 
 export class CallError extends Error {
   readonly code: CallErrorCode;
@@ -59,11 +60,26 @@ export class Call {
   private _error?: CallError;
   private readonly _stateHandlers = new Set<(state: CallState) => void>();
   private readonly _remoteStreamHandlers = new Set<(stream: MediaStream) => void>();
+  private readonly _messageHandlers = new Set<(payload: Record<string, unknown>) => void>();
   private readonly _webrtcCode: string;
   private readonly _sockUrl: URL;
+
   private readonly _remoteAudio: HTMLAudioElement;
   private readonly _connectingTone?: ConnectingTone;
+  private readonly _leavingTone?: Tone;
+  private readonly _connectionTimeoutMs?: number;
+  private readonly _customPayload: Record<string, unknown>;
+  private _connectionTimer?: ReturnType<typeof setTimeout>;
   private _sock?: WebSocket;
+
+  private readonly _chatSockUrl: URL;
+  // Links the chat socket to this call's session on the server.
+  private readonly _chatSessionId = crypto.randomUUID();
+  private _chatSock?: WebSocket;
+  private _chatReady = false;
+  // Messages sent before the chat socket is ready.
+  private _pendingChatMessages: string[] = [];
+
   private _localStream?: MediaStream;
   private _peerConnection?: RTCPeerConnection;
   private _remoteStream?: MediaStream;
@@ -75,15 +91,33 @@ export class Call {
     webrtcCode,
     baseUrl = "https://app.goguava.ai/",
     connectingTone = new JingleTone(),
+    leavingTone = new LeavingTone(),
+    connectionTimeoutMs = 30_000,
+    customPayload = {},
   }: {
+    /** Code used to authenticate with the signaling server. */
     webrtcCode: string;
+    /** Base URL of the Guava server. Defaults to `https://app.goguava.ai/`. */
     baseUrl?: string;
-    // Played while the call is in the "connecting" state.
+    /** Played while the call is in the "connecting" state. Defaults to {@link JingleTone}. */
     connectingTone?: ConnectingTone | "disabled";
+    /** Played when the call ends. Defaults to {@link LeavingTone}. */
+    leavingTone?: Tone | "disabled";
+    /** Max time in the "connecting" state before the call fails with CONNECTION_TIMEOUT. Defaults to 30 seconds. */
+    connectionTimeoutMs?: number | "disabled";
+    /** A custom payload that is forwarded to the agent at the start of the call. */
+    customPayload?: Record<string, unknown>;
   }) {
     this._webrtcCode = webrtcCode;
+    this._customPayload = customPayload;
     if (connectingTone !== "disabled") {
       this._connectingTone = connectingTone;
+    }
+    if (leavingTone !== "disabled") {
+      this._leavingTone = leavingTone;
+    }
+    if (connectionTimeoutMs !== "disabled") {
+      this._connectionTimeoutMs = connectionTimeoutMs;
     }
 
     this._sockUrl = new URL("/webrtc/", baseUrl);
@@ -92,6 +126,7 @@ export class Call {
       throw new Error(`Unsupported baseUrl protocol: ${this._sockUrl.protocol}`);
     }
     this._sockUrl.protocol = sockProtocol;
+    this._chatSockUrl = new URL("/webrtc-chat/", this._sockUrl);
 
     this._remoteAudio = document.createElement("audio");
     this._remoteAudio.autoplay = true;
@@ -128,15 +163,40 @@ export class Call {
     };
   }
 
+  /**
+   * Registers a handler for messages the agent sends with `call.send_webrtc_message()`.
+   * @param handler - Called with each message's payload.
+   * @returns A function that unregisters the handler.
+   */
+  onMessage(handler: (payload: Record<string, unknown>) => void): () => void {
+    this._messageHandlers.add(handler);
+    return () => {
+      this._messageHandlers.delete(handler);
+    };
+  }
+
   private _setState(state: CallState) {
     if (state === this._state) {
       return;
     }
+
+    if (state === "ended") {
+      this._leavingTone?.play();
+    }
+
     this._state = state;
     if (state === "connecting") {
       this._connectingTone?.start();
+      if (this._connectionTimeoutMs !== undefined) {
+        this._connectionTimer = setTimeout(() => {
+          this._send({ type: "hangup" });
+          this._end(new CallError("CONNECTION_TIMEOUT", "Timed out connecting the call."));
+        }, this._connectionTimeoutMs);
+      }
     } else {
       this._connectingTone?.stop();
+      clearTimeout(this._connectionTimer);
+      this._connectionTimer = undefined;
     }
     for (const handler of this._stateHandlers) {
       handler(state);
@@ -185,7 +245,13 @@ export class Call {
 
     this._sock = new WebSocket(this._sockUrl);
     this._sock.onopen = () => {
-      this._send({ type: "auth", body: this._webrtcCode });
+      this._send({
+        type: "auth",
+        body: JSON.stringify({
+          webrtc_code: this._webrtcCode,
+          chat_session_id: this._chatSessionId,
+        }),
+      });
     };
     this._sock.onmessage = (event) => {
       this._onMessage(JSON.parse(event.data) as SignalingMessage);
@@ -195,6 +261,51 @@ export class Call {
     };
 
     await started;
+  }
+
+  /**
+   * Sends a message to the agent, delivered to its `on_webrtc_message` handler.
+   * Messages sent before the message channel is ready are queued.
+   * @param payload - A JSON-serializable object.
+   */
+  sendMessage(payload: Record<string, unknown>) {
+    if (this._state === "not-started" || this._state === "ended") {
+      throw new Error(`sendMessage() called while the call is ${this._state}.`);
+    }
+    const message = JSON.stringify({ type: "webrtc-message", payload });
+    if (this._chatReady && this._chatSock !== undefined) {
+      this._chatSock.send(message);
+    } else {
+      this._pendingChatMessages.push(message);
+    }
+  }
+
+  private _openChatSocket() {
+    this._chatSock = new WebSocket(this._chatSockUrl);
+    this._chatSock.onopen = () => {
+      this._chatSock?.send(
+        JSON.stringify({ webrtc_code: this._webrtcCode, chat_session_id: this._chatSessionId }),
+      );
+    };
+    this._chatSock.onmessage = (event) => {
+      const message = JSON.parse(event.data) as {
+        type?: string;
+        command_type?: string;
+        payload?: Record<string, unknown>;
+      };
+      // The server sends "ready" once the call session is found.
+      if (message.type === "ready" && !this._chatReady) {
+        this._chatReady = true;
+        for (const pending of this._pendingChatMessages) {
+          this._chatSock?.send(pending);
+        }
+        this._pendingChatMessages = [];
+      } else if (message.command_type === "send-webrtc-message") {
+        for (const handler of this._messageHandlers) {
+          handler(message.payload ?? {});
+        }
+      }
+    };
   }
 
   async hangup() {
@@ -224,7 +335,8 @@ export class Call {
           return;
         }
         this._iceServers = message.ice_servers;
-        this._send({ type: "connect", body: {} });
+        this._openChatSocket();
+        this._send({ type: "connect", body: { custom_payload: this._customPayload } });
         void this._connectPeer();
         break;
       case "desc":
@@ -351,12 +463,23 @@ export class Call {
   }
 
   private _teardown() {
+    // Close the signaling socket.
     if (this._sock) {
       // Don't fire close handlers for a socket we closed ourselves.
       this._sock.onclose = null;
       this._sock.close();
       this._sock = undefined;
     }
+
+    // Close the chat socket.
+    if (this._chatSock) {
+      this._chatSock.close();
+      this._chatSock = undefined;
+    }
+    this._chatReady = false;
+    this._pendingChatMessages = [];
+
+    // Close the peer connection.
     if (this._peerConnection !== undefined) {
       this._peerConnection.close();
       this._peerConnection = undefined;
@@ -366,6 +489,8 @@ export class Call {
     }
     this._localStream = undefined;
     this._remoteStream = undefined;
+
+    // Remove the audio element.
     this._remoteAudio.srcObject = null;
     this._remoteAudio.remove();
   }

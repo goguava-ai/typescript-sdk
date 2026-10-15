@@ -2,7 +2,7 @@
   "name": "@guava-ai/guava-sdk",
   "description": "The official TypeScript SDK for building Guava voice agents.",
   "homepage": "https://docs.goguava.ai/typescript-sdk/",
-  "version": "0.39.0",
+  "version": "0.40.0",
   "type": "commonjs",
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
@@ -76,11 +76,11 @@
     "test:e2e": "jest --config jest.e2e.config.cjs",
     "check": "npm run typecheck && npm audit --omit=dev && npm run lint && npm run check-format",
     "clean": "rm -rf ./dist",
-    "build": "tsx scripts/update-version.ts && tsc && chmod +x ./dist/bin/example-runner.js && npm run build-webrtc && tsx scripts/update-readme.ts",
+    "build": "tsx scripts/update-version.ts && tsc && chmod +x ./dist/bin/example-runner.js && npm run build-webrtc",
     "build-webrtc": "npm run build-webrtc:esm && npm run build-webrtc:iife",
     "build-webrtc:esm": "esbuild src/webrtc/index.ts --bundle --minify --sourcemap --target=es2020 --format=esm --outfile=dist/guava-webrtc.esm.min.js",
     "build-webrtc:iife": "esbuild src/webrtc/index.ts --bundle --minify --sourcemap --target=es2020 --format=iife --global-name=Guava --outfile=dist/guava-webrtc.min.js",
-    "prepare": "npm run clean && npm run build",
+    "prepare": "npm run clean && npm run build && if [ \"$npm_command\" = publish ]; then tsx scripts/update-readme.ts; fi",
     "release": "npm publish --ignore-scripts=false"
   },
   "publishConfig": {

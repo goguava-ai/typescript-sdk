@@ -69,6 +69,7 @@ export class Call {
   private readonly _leavingTone?: Tone;
   private readonly _connectionTimeoutMs?: number;
   private readonly _customPayload: Record<string, unknown>;
+  private readonly _customAudioTrack?: MediaStreamTrack;
   private _connectionTimer?: ReturnType<typeof setTimeout>;
   private _sock?: WebSocket;
 
@@ -81,6 +82,7 @@ export class Call {
   private _pendingChatMessages: string[] = [];
 
   private _localStream?: MediaStream;
+  private _micMuted = false;
   private _peerConnection?: RTCPeerConnection;
   private _remoteStream?: MediaStream;
   private _iceServers?: RTCIceServer[];
@@ -94,6 +96,7 @@ export class Call {
     leavingTone = new LeavingTone(),
     connectionTimeoutMs = 30_000,
     customPayload = {},
+    audioTrack,
   }: {
     /** Code used to authenticate with the signaling server. */
     webrtcCode: string;
@@ -107,9 +110,18 @@ export class Call {
     connectionTimeoutMs?: number | "disabled";
     /** A custom payload that is forwarded to the agent at the start of the call. */
     customPayload?: Record<string, unknown>;
+    /**
+     * An audio track to send. Supplying this skips requesting the microphone with `getUserMedia()`.
+     * We use `track.clone()` to create a clone of this track. The caller is responsible for calling
+     * `track.stop()` on their original reference when it is no longer needed.
+     * Because we use a clone, use {@link Call.setMicrophoneMuted} to mute the call, rather than setting
+     * `enabled` on the original track.
+     */
+    audioTrack?: MediaStreamTrack;
   }) {
     this._webrtcCode = webrtcCode;
     this._customPayload = customPayload;
+    this._customAudioTrack = audioTrack;
     if (connectingTone !== "disabled") {
       this._connectingTone = connectingTone;
     }
@@ -212,29 +224,40 @@ export class Call {
     // Add the audio element.
     document.body.appendChild(this._remoteAudio);
 
-    // We start by requesting device permissions first. The idea is that, after permission has been granted,
-    // it makes sence to play a ringback, but it doesn't make sense to do so during the permission prompt.
+    if (this._customAudioTrack !== undefined) {
+      this._localStream = new MediaStream([this._customAudioTrack.clone()]);
+    } else {
+      // We start by requesting device permissions first. The idea is that, after permission has been granted,
+      // it makes sence to play a ringback, but it doesn't make sense to do so during the permission prompt.
 
-    const permissionTimer = setTimeout(() => {
-      this._setState("waiting-for-permission");
-    }, 500);
+      const permissionTimer = setTimeout(() => {
+        this._setState("waiting-for-permission");
+      }, 500);
 
-    try {
-      this._localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-    } catch (error) {
-      const callError = new CallError("MICROPHONE_ACCESS_FAILED", "Failed to access microphone.", {
-        cause: error,
-      });
-      this._end(callError);
-      throw callError;
-    } finally {
-      clearTimeout(permissionTimer);
-    }
+      try {
+        this._localStream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+          video: false,
+        });
+      } catch (error) {
+        const callError = new CallError(
+          "MICROPHONE_ACCESS_FAILED",
+          "Failed to access microphone.",
+          {
+            cause: error,
+          },
+        );
+        this._end(callError);
+        throw callError;
+      } finally {
+        clearTimeout(permissionTimer);
+      }
 
-    // hangup() was called during the permission prompt.
-    if (this.state === "ended") {
-      this._teardown();
-      return;
+      // hangup() was called during the permission prompt.
+      if (this.state === "ended") {
+        this._teardown();
+        return;
+      }
     }
 
     // Now open and authenticate the signaling socket.
@@ -261,6 +284,25 @@ export class Call {
     };
 
     await started;
+  }
+
+  /**
+   * Mutes or unmutes the microphone. Can be called before the call starts.
+   * @param muted - Whether the microphone should be muted.
+   */
+  setMicrophoneMuted(muted: boolean) {
+    this._micMuted = muted;
+    for (const track of this._localStream?.getAudioTracks() ?? []) {
+      track.enabled = !muted;
+    }
+  }
+
+  /**
+   * Mutes or unmutes playback of the remote audio. Can be called before the call starts.
+   * @param muted - Whether the remote audio should be muted.
+   */
+  setRemoteMuted(muted: boolean) {
+    this._remoteAudio.muted = muted;
   }
 
   /**
@@ -426,6 +468,7 @@ export class Call {
       }
     };
     for (const track of this._localStream.getAudioTracks()) {
+      track.enabled = !this._micMuted;
       this._peerConnection.addTrack(track);
     }
 

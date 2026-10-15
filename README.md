@@ -57,8 +57,8 @@ You can also load a prebuilt bundle from a CDN.
 
 ```html
 <script
-  src="https://cdn.jsdelivr.net/npm/@guava-ai/guava-sdk@0.39.0/dist/guava-webrtc.min.js"
-  integrity="sha384-1Y1pGUhd4tRQdEQaEUk/2nx9w2Mvl2EEXIZiTw4YFGfUSgp5o9hMJS8UibgJXrNp"
+  src="https://cdn.jsdelivr.net/npm/@guava-ai/guava-sdk@0.40.0/dist/guava-webrtc.min.js"
+  integrity="sha384-uQk/PbfYN8B4stNmOZcjiXXLwfH7WgfV/qS0oDayomXmtC2a6+5idq9kErN96aP5"
   crossorigin="anonymous"
 ></script>
 <script>
@@ -73,13 +73,15 @@ Or as an ES module:
 <script type="importmap">
   {
     "integrity": {
-      "https://cdn.jsdelivr.net/npm/@guava-ai/guava-sdk@0.39.0/dist/guava-webrtc.esm.min.js": "sha384-jtuG1DKqz8m5JdMoUZp4jTbGTZTrqJqWqf3tVxsWHqG08UPs7lU9EC4AZkdIzzp0"
+      "https://cdn.jsdelivr.net/npm/@guava-ai/guava-sdk@0.40.0/dist/guava-webrtc.esm.min.js": "sha384-Kj5mMp2CvcMvf0d6MiAbFsD6/27EnYexIRXV25A5aWO7cKQw5BVxc+3c6h5WyXkF"
     }
   }
 </script>
 <script type="module">
-  import * as Guava from "https://cdn.jsdelivr.net/npm/@guava-ai/guava-sdk@0.39.0/dist/guava-webrtc.esm.min.js";
+  import * as Guava from "https://cdn.jsdelivr.net/npm/@guava-ai/guava-sdk@0.40.0/dist/guava-webrtc.esm.min.js";
   const call = new Guava.Call({ webrtcCode: "..." });
   await call.start();
 </script>
 ```
+
+See the [WebRTC calling guide](https://docs.goguava.ai/guides/webrtc-calls) for more details on how to create WebRTC agents with Guava.

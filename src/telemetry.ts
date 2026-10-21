@@ -15,6 +15,8 @@ const logger: Logger = debugEnabled
 export const TelemetryEvent = {
   METHOD_CALL: "method-call",
   EXCEPTION_RAISED: "exception-raised",
+  GUAVASOCKET_CLOSED: "guavasocket-closed",
+  GUAVASOCKET_ESTABLISHED: "guavasocket-established",
 } as const;
 
 export type TelemetryEvent = (typeof TelemetryEvent)[keyof typeof TelemetryEvent];

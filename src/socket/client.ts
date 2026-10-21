@@ -6,7 +6,7 @@ import type { Client } from "../client.ts";
 import type { Logger } from "../logging.ts";
 import { getDefaultLogger } from "../logging.ts";
 import { EventCounter } from "./utils.ts";
-import { telemetryClient } from "../telemetry.ts";
+import { TelemetryEvent, telemetryClient } from "../telemetry.ts";
 import {
   type CloseReason,
   type GuavaClientMessage,
@@ -114,6 +114,11 @@ export class GuavaSocket<SendT, RecvT> {
     if (this._closeReason === undefined) {
       this._closeReason = reason;
       this._closeDescription = description;
+      telemetryClient.sendEvent(TelemetryEvent.GUAVASOCKET_CLOSED, {
+        connection_id: this._connectionId,
+        reason,
+        description,
+      });
     }
   }
 
@@ -141,6 +146,7 @@ export class GuavaSocket<SendT, RecvT> {
   }
 
   private async _establishSocket(isReopen: boolean): Promise<WebSocket> {
+    const startTime = performance.now();
     for (let attempt = 1; attempt <= MAX_RECONNECT_ATTEMPTS; attempt++) {
       const headers = await this._client.headers();
 
@@ -206,12 +212,20 @@ export class GuavaSocket<SendT, RecvT> {
                   });
                 } else {
                   // Retransmit any messages the server hasn't seen
+                  let numRetransmitted = 0;
                   for (const [seq, payload] of this._rtxBuffer) {
                     if (seq > msg.last_seen_sequence) {
                       _sendMessage(socket, { message_type: "message", sequence: seq, payload });
+                      numRetransmitted++;
                     }
                   }
                   this._pruneRtxBuffer(msg.last_seen_sequence);
+                  telemetryClient.sendEvent(TelemetryEvent.GUAVASOCKET_ESTABLISHED, {
+                    connection_id: this._connectionId,
+                    attempts: attempt,
+                    duration_sec: (performance.now() - startTime) / 1000,
+                    num_retransmitted: numRetransmitted,
+                  });
                   settle(() => resolve(socket));
                 }
               } catch (e) {
@@ -229,10 +243,15 @@ export class GuavaSocket<SendT, RecvT> {
         if (e instanceof GuavaSocketClosedError) throw e;
 
         if (attempt >= MAX_RECONNECT_ATTEMPTS) {
-          this._logger.error("Couldn't connect to server after %d attempts.", attempt);
+          const durationSec = (performance.now() - startTime) / 1000;
+          this._logger.error(
+            "Couldn't connect to server after %d attempts (%ss).",
+            attempt,
+            durationSec.toFixed(1),
+          );
           this._setCloseReason(
             "reconnection-failed",
-            `Couldn't connect after ${attempt} attempts.`,
+            `Couldn't connect after ${attempt} attempts (${durationSec.toFixed(1)}s).`,
           );
           throw new GuavaSocketConnectionFailed();
         }

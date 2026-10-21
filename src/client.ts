@@ -118,11 +118,11 @@ export class Client {
   private async _checkSdkDeprecation() {
     this._logger.debug(`Checking deprecation for SDK ${SDK_NAME}, ${SDK_VERSION}.`);
     try {
-      const url = new URL("v1/check-sdk-deprecation", this.getHttpBase());
-      url.searchParams.set("sdk_name", SDK_NAME);
-      url.searchParams.set("sdk_version", SDK_VERSION);
+      const url = new URL("v1/deprecation-status", this.getHttpBase());
+      url.searchParams.set("component", SDK_NAME);
+      url.searchParams.set("version", SDK_VERSION);
       const response = await fetchOrThrow(url, {
-        method: "POST",
+        method: "GET",
         headers: await this.headers(),
       });
       const body = (await response.json()) as { deprecation_status: string };
@@ -205,7 +205,7 @@ export class Client {
    * @param message - The message body to send.
    */
   async sendSms(fromNumber: string, toNumber: string, message: string): Promise<void> {
-    const url = new URL("v1/send-sms", this.getHttpBase());
+    const url = new URL("v1/sms/send", this.getHttpBase());
     await fetchOrThrow(url, {
       method: "POST",
       headers: { ...(await this.headers()), "Content-Type": "application/json" },

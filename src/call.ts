@@ -294,7 +294,7 @@ export class Call {
     });
   }
 
-  async readScript(script: string) {
+  async readScript(script: string | Partial<Record<Language, string>>) {
     await this.sendCommand(ReadScriptCommand, {
       command_type: "read-script",
       script,

@@ -44,9 +44,17 @@ export const SetTaskCommand = z.strictObject({
 });
 export type SetTaskCommand = z.input<typeof SetTaskCommand>;
 
+export const Language = z.enum(["english", "spanish", "french", "german", "italian"]);
+export type Language = z.infer<typeof Language>;
+
 export const ReadScriptCommand = z.strictObject({
   command_type: z.literal("read-script"),
-  script: z.string(),
+  script: z.union([
+    z.string(),
+    z.partialRecord(Language, z.string()).refine((obj) => Object.keys(obj).length > 0, {
+      error: "'script' must not be an empty object",
+    }),
+  ]),
 });
 export type ReadScriptCommand = z.input<typeof ReadScriptCommand>;
 
@@ -81,9 +89,6 @@ export const SetPersona = z.strictObject({
   tts_replacements: z.record(z.string().min(1), z.string()).optional(),
 });
 export type SetPersona = z.input<typeof SetPersona>;
-
-export const Language = z.enum(["english", "spanish", "french", "german", "italian"]);
-export type Language = z.infer<typeof Language>;
 
 export const SetLanguageModeCommand = z.strictObject({
   command_type: z.literal("set-language-mode"),

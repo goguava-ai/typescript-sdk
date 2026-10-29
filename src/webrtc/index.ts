@@ -62,6 +62,7 @@ export class Call {
   private readonly _remoteStreamHandlers = new Set<(stream: MediaStream) => void>();
   private readonly _messageHandlers = new Set<(payload: Record<string, unknown>) => void>();
   private readonly _webrtcCode: string;
+  private readonly _clientToken?: string;
   private readonly _sockUrl: URL;
 
   private readonly _remoteAudio: HTMLAudioElement;
@@ -91,6 +92,7 @@ export class Call {
 
   constructor({
     webrtcCode,
+    clientToken,
     baseUrl = "https://app.goguava.ai/",
     connectingTone = new JingleTone(),
     leavingTone = new LeavingTone(),
@@ -100,6 +102,11 @@ export class Call {
   }: {
     /** Code used to authenticate with the signaling server. */
     webrtcCode: string;
+    /**
+     * Single-use token created by your backend. Required if the code was created with
+     * `require_token`. A token is consumed when the call starts, so use a new one for each call.
+     */
+    clientToken?: string;
     /** Base URL of the Guava server. Defaults to `https://app.goguava.ai/`. */
     baseUrl?: string;
     /** Played while the call is in the "connecting" state. Defaults to {@link JingleTone}. */
@@ -120,6 +127,7 @@ export class Call {
     audioTrack?: MediaStreamTrack;
   }) {
     this._webrtcCode = webrtcCode;
+    this._clientToken = clientToken;
     this._customPayload = customPayload;
     this._customAudioTrack = audioTrack;
     if (connectingTone !== "disabled") {
@@ -273,6 +281,7 @@ export class Call {
         body: JSON.stringify({
           webrtc_code: this._webrtcCode,
           chat_session_id: this._chatSessionId,
+          client_token: this._clientToken,
         }),
       });
     };

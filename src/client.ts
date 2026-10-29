@@ -143,11 +143,15 @@ export class Client {
   /**
    * Creates a WebRTC agent and returns its code, which can be used to receive inbound calls over WebRTC.
    * @param ttlSec - How long the agent code remains valid, in seconds. Defaults to no expiration.
+   * @param requireToken - If true, callers must present a single-use client token, created by your backend.
    */
-  async createWebrtcAgent(ttlSec?: number): Promise<string> {
-    const url = new URL("v1/webrtc-agents", this.getHttpBase());
+  async createWebrtcAgent(ttlSec?: number, requireToken = false): Promise<string> {
+    const url = new URL("v1/webrtc/codes", this.getHttpBase());
     if (ttlSec !== undefined) {
-      url.searchParams.set("ttl_sec", ttlSec.toString());
+      url.searchParams.set("expires_in", ttlSec.toString());
+    }
+    if (requireToken) {
+      url.searchParams.set("require_token", "true");
     }
     const response = await fetchOrThrow(url, {
       method: "POST",
@@ -155,6 +159,26 @@ export class Client {
     });
     const body = (await response.json()) as { webrtc_code: string };
     return body.webrtc_code;
+  }
+
+  /**
+   * Creates a single-use token that lets a client start a call to a WebRTC code.
+   * Tokens are consumed when a call starts, so create a new one for each call.
+   * @param webrtcCode - The WebRTC code the token grants access to.
+   * @param expiresInSec - How long the token remains valid if unused, in seconds. Defaults to 1 hour.
+   */
+  async createWebrtcClientToken(webrtcCode: string, expiresInSec?: number): Promise<string> {
+    const url = new URL("v1/webrtc/client-tokens", this.getHttpBase());
+    url.searchParams.set("webrtc_code", webrtcCode);
+    if (expiresInSec !== undefined) {
+      url.searchParams.set("expires_in", expiresInSec.toString());
+    }
+    const response = await fetchOrThrow(url, {
+      method: "POST",
+      headers: await this.headers(),
+    });
+    const body = (await response.json()) as { token: string };
+    return body.token;
   }
 
   async createSipAgent(): Promise<string> {
@@ -241,21 +265,20 @@ export class Client {
     const start = new Date().toISOString();
     const deadline = Date.now() + timeoutMs;
     while (true) {
-      const url = new URL("v1/messages", this.getHttpBase());
+      const url = new URL("v1/sms/messages", this.getHttpBase());
       url.searchParams.set("to_number", toNumber);
       url.searchParams.set("from_number", fromNumber);
-      url.searchParams.set("modality", "sms");
-      url.searchParams.set("start", start);
+      url.searchParams.set("received_after", start);
       const response = await fetchOrThrow(url, {
         method: "GET",
         headers: await this.headers(),
       });
       // The endpoint returns matches oldest-first, so the earliest message after
-      // `start` is always the first element — we only need one, so `has_more`
-      // (which signals additional *later* messages) is irrelevant here.
-      const body = (await response.json()) as { messages: unknown[] };
-      if (body.messages?.length) {
-        return SmsMessage.parse(body.messages[0]);
+      // `start` is always the first element — we only need one, so `next_url`
+      // (which points at additional *later* messages) is irrelevant here.
+      const body = (await response.json()) as { results: unknown[] };
+      if (body.results.length) {
+        return SmsMessage.parse(body.results[0]);
       }
       const remaining = deadline - Date.now();
       if (remaining <= 0) {

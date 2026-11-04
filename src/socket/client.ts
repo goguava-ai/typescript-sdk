@@ -197,7 +197,7 @@ export class GuavaSocket<SendT, RecvT> {
                 socket.close();
                 reject(new Error("Timed out waiting for open-ack"));
               });
-            }, 10_000);
+            }, 15_000);
 
             socket.once("message", (data) => {
               clearTimeout(ackTimeout);

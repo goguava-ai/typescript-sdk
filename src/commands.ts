@@ -111,6 +111,12 @@ export const TransferCommand = z.strictObject({
 });
 export type TransferCommand = z.input<typeof TransferCommand>;
 
+export const HangupCommand = z.strictObject({
+  command_type: z.literal("hangup-call"),
+  final_script: z.string().nullish().default(null),
+});
+export type HangupCommand = z.input<typeof HangupCommand>;
+
 export const RegisteredHooksCommand = z.strictObject({
   command_type: z.literal("registered-hooks"),
   has_on_question: z.boolean(),
@@ -150,6 +156,13 @@ export const RetryTaskCommand = z.strictObject({
 });
 export type RetryTaskCommand = z.input<typeof RetryTaskCommand>;
 
+export const SetVariableCommand = z.strictObject({
+  command_type: z.literal("set-variable"),
+  key: z.string(),
+  value: z.json(),
+});
+export type SetVariableCommand = z.input<typeof SetVariableCommand>;
+
 export const SetAgentDTMFCommand = z.strictObject({
   command_type: z.literal("set-agent-dtmf"),
   enabled: z.boolean(),
@@ -161,6 +174,12 @@ export const SendAgentDTMFCommand = z.strictObject({
   digits: z.array(z.enum(DTMF_DIGITS)),
 });
 export type SendAgentDTMFCommand = z.input<typeof SendAgentDTMFCommand>;
+
+export const SendWebRTCMessageCommand = z.strictObject({
+  command_type: z.literal("send-webrtc-message"),
+  payload: z.record(z.string(), z.json()).default({}),
+});
+export type SendWebRTCMessageCommand = z.input<typeof SendWebRTCMessageCommand>;
 
 export const ExpertErrorCommand = z.strictObject({
   command_type: z.literal("expert-error"),
@@ -180,12 +199,15 @@ export const AnyCommand = z.union([
   SetLanguageModeCommand,
   SendInstructionCommand,
   TransferCommand,
+  HangupCommand,
   RegisteredHooksCommand,
   ChoiceResultCommand,
   ActionSuggestionCommand,
   RetryTaskCommand,
+  SetVariableCommand,
   SetAgentDTMFCommand,
   SendAgentDTMFCommand,
+  SendWebRTCMessageCommand,
   ExpertErrorCommand,
 ]);
 export type Command = z.input<typeof AnyCommand>;

@@ -165,6 +165,13 @@ export const AgentDTMFSentEvent = z.object({
 });
 export type AgentDTMFSentEvent = z.infer<typeof AgentDTMFSentEvent>;
 
+/** A message sent by a connected WebRTC client. */
+export const WebRTCMessageEvent = z.object({
+  event_type: z.literal("webrtc-message"),
+  payload: z.record(z.string(), z.json()).default({}),
+});
+export type WebRTCMessageEvent = z.infer<typeof WebRTCMessageEvent>;
+
 export const EscalateEvent = z.object({
   event_type: z.literal("escalate"),
   requested_by: z.enum(["human", "agent"]).default("human"),
@@ -191,6 +198,7 @@ export const GuavaEvent = z.discriminatedUnion("event_type", [
   EscalateEvent,
   DTMFPressedEvent,
   AgentDTMFSentEvent,
+  WebRTCMessageEvent,
 ]);
 export type GuavaEvent = z.infer<typeof GuavaEvent>;
 

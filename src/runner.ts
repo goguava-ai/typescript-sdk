@@ -28,7 +28,9 @@ export class Runner {
   listenWebrtc(agent: Agent, webrtcCode?: string): this {
     const ctx = this._healthCtx.createCtx();
     this._tasks.push(async () => {
-      const code = webrtcCode ?? (await agent._client.createWebrtcAgent(3600));
+      // Unlike the Python SDK, code creation happens here to prevent Runner.listen_webrtc from becoming async.
+      if (!webrtcCode) this._logger.info("No WebRTC code provided. Creating a temporary one.");
+      const code = webrtcCode || (await agent._client.createWebrtcAgent(3600));
       return agent._listenInbound(ctx, { webrtc_code: code }, {}, this._drainController.signal);
     });
     return this;
@@ -56,7 +58,14 @@ export class Runner {
           this._drainController.abort();
         })
       : nullDisposable;
-    await Promise.all(this._tasks.map((task) => task()));
+    // Wait for every task, so one failing doesn't tear down signal handling and
+    // the health server while others are still draining.
+    const results = await Promise.allSettled(this._tasks.map((task) => task()));
     this._logger.info("All tasks done.");
+
+    const errors = results.flatMap((r) => (r.status === "rejected" ? [r.reason] : []));
+    if (errors.length === 1) throw errors[0];
+    if (errors.length > 1)
+      throw new AggregateError(errors, `${errors.length} runner tasks failed.`);
   }
 }

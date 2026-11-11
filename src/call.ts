@@ -8,13 +8,16 @@ import {
   SetTaskCommand,
   SendInstructionCommand,
   TransferCommand,
+  HangupCommand,
   ReadScriptCommand,
   RetryTaskCommand,
   SetAgentDTMFCommand,
   SendAgentDTMFCommand,
+  SetVariableCommand,
+  SendWebRTCMessageCommand,
 } from "./commands.ts";
 import { DTMF_DIGITS, type DTMFDigit } from "./events.ts";
-import type * as z from "zod";
+import * as z from "zod";
 import type {
   ActionItem,
   FieldItem,
@@ -26,6 +29,8 @@ import { Say } from "./action-item.ts";
 import { telemetryClient } from "./telemetry.ts";
 import type { CallInfo } from "./socket/call-info.ts";
 import type { SipUri } from "./sip.ts";
+import { Client } from "./client.ts";
+import { idempotentPost } from "./utils.ts";
 
 export type TaskObjective =
   | { objective: string }
@@ -60,8 +65,179 @@ function voicemailMessageInstruction(message: string): string {
   return `Say this message VERBATIM: "${message}" Then hang up.`;
 }
 
+/** Call-control methods shared by {@link Call} and {@link RemoteCall}. */
+export abstract class BaseCall {
+  /** Validate a command against its schema and send it to the call. */
+  async sendCommand<C extends Command, Schema extends z.ZodType<C>>(
+    schema: Schema,
+    data: z.input<Schema>,
+  ) {
+    await this._sendCommand(schema.parse(data));
+  }
+
+  protected abstract _sendCommand(command: Command): Promise<void>;
+
+  async setLanguageMode(args: { primary?: Language; secondary?: Language[] }) {
+    await this.sendCommand(SetLanguageModeCommand, {
+      command_type: "set-language-mode",
+      primary: args.primary ?? "english",
+      secondary: args.secondary ?? [],
+    });
+  }
+
+  /**
+   * @description provide identifiers the agent will use to identify the virtual agent
+   */
+  async setPersona(args: {
+    organizationName?: string;
+    agentName?: string;
+    agentPurpose?: string;
+    voice?: string;
+    speechSpeed?: SpeedPreset;
+    pronunciations?: Record<string, string>;
+  }) {
+    await this.sendCommand(SetPersona, {
+      command_type: "set-persona",
+      organization_name: args.organizationName,
+      agent_name: args.agentName,
+      agent_purpose: args.agentPurpose,
+      voice: args.voice,
+      tts_speed: args.speechSpeed,
+      tts_replacements: args.pronunciations,
+    });
+  }
+
+  /**
+   * Transfer the call to another destination.
+   *
+   * This method does not interfere with turn-taking — use this when
+   * you want the agent to naturally transfer the call.
+   *
+   * @param destination - The phone number, SIP address, or SipUri to transfer the call to.
+   * @param instructions - Optional guidance for how the agent should handle the transfer.
+   */
+  async transfer(destination: string | SipUri, instructions?: string) {
+    await this.sendCommand(TransferCommand, {
+      command_type: "transfer-call",
+      to_number: destination.toString(),
+      transfer_message:
+        instructions ?? "Notify the caller that you will be transferring them, and then transfer.",
+      soft_transfer: true,
+    });
+  }
+
+  /**
+   * Transfer the call immediately.
+   *
+   * Unlike transfer(), this does not respect turn-taking. The agent immediately
+   * initiates the transfer, saying the script (if provided).
+   *
+   * @param destination - The phone number, SIP address, or SipUri to transfer the call to.
+   * @param finalScript - Optional message for the agent to deliver immediately
+   *   before transferring. Defaults to no message.
+   */
+  async immediateTransfer(destination: string | SipUri, finalScript?: string) {
+    await this.sendCommand(TransferCommand, {
+      command_type: "transfer-call",
+      to_number: destination.toString(),
+      transfer_message: finalScript ?? "",
+      soft_transfer: false,
+    });
+  }
+
+  /**
+   * Hang up the call immediately.
+   *
+   * Unlike hangup(), this does not respect turn-taking. Any speech the agent
+   * has already queued finishes, then the agent says the script (if provided)
+   * and the call ends. The caller cannot interrupt once this has been sent.
+   *
+   * @param finalScript - Optional message for the agent to deliver word-for-word
+   *   immediately before hanging up. Defaults to no message.
+   */
+  async immediateHangup(finalScript?: string) {
+    await this.sendCommand(HangupCommand, {
+      command_type: "hangup-call",
+      final_script: finalScript ?? null,
+    });
+  }
+
+  async addInfo(label: string, info: unknown) {
+    await this.sendInstruction(
+      `Here is some information about the following topic ${label}:\n${JSON.stringify(info, null, 2)}`,
+    );
+  }
+
+  async retryTask(reason: string) {
+    await this.sendCommand(RetryTaskCommand, {
+      command_type: "retry-task",
+      reason,
+    });
+  }
+
+  async readScript(script: string | Partial<Record<Language, string>>) {
+    await this.sendCommand(ReadScriptCommand, {
+      command_type: "read-script",
+      script,
+    });
+  }
+
+  async sendInstruction(instruction: string) {
+    await this.sendCommand(SendInstructionCommand, {
+      command_type: "send-instruction",
+      instruction: instruction,
+    });
+  }
+
+  /**
+   * @description hang up an accepted call
+   */
+  async hangup(final_instructions: string = "") {
+    let instructions: string;
+    if (final_instructions) {
+      instructions = `Start ending the conversation. Here are your final instructions: ${final_instructions} Once you've completed the final instructions, naturally end the conversation and hang up the call.`;
+    } else {
+      instructions = "Naturally end the conversation and hang up the call.";
+    }
+
+    await this.sendInstruction(instructions);
+  }
+}
+
+/**
+ * Controls a call from outside the process handling it, e.g. to transfer a
+ * call that another agent is handling.
+ */
 @telemetryClient.trackClass()
-export class Call {
+export class RemoteCall extends BaseCall {
+  private _callId: string;
+  private _client: Client;
+
+  /**
+   * @param callId - The ID of the call to control.
+   * @param client - Client used to send commands. Defaults to a new {@link Client}.
+   */
+  constructor(callId: string, client: Client = new Client()) {
+    super();
+    this._callId = callId;
+    this._client = client;
+  }
+
+  get id(): string {
+    return this._callId;
+  }
+
+  protected async _sendCommand(command: Command): Promise<void> {
+    const url = new URL(`v1/call/${this._callId}/send-commands`, this._client.getHttpBase());
+    await idempotentPost(url, {
+      headers: { ...(await this._client.headers()), "Content-Type": "application/json" },
+      body: JSON.stringify([command]),
+    });
+  }
+}
+
+@telemetryClient.trackClass()
+export class Call extends BaseCall {
   private _callId: string;
   private _callInfo: CallInfo;
   protected _commandQueue: Command[] = [];
@@ -81,6 +257,7 @@ export class Call {
     variables: Record<string, any> = {},
     logger: Logger = getDefaultLogger(),
   ) {
+    super();
     this._callId = callId;
     this._callInfo = callInfo;
 
@@ -127,11 +304,7 @@ export class Call {
     return key in this._fieldValues;
   }
 
-  async sendCommand<C extends Command, Schema extends z.ZodType<C>>(
-    schema: Schema,
-    data: z.input<Schema>,
-  ) {
-    const command = schema.parse(data);
+  protected async _sendCommand(command: Command): Promise<void> {
     this._commandQueue.push(command);
     await this.flush();
   }
@@ -166,33 +339,22 @@ export class Call {
     });
   }
 
-  async setLanguageMode(args: { primary?: Language; secondary?: Language[] }) {
-    await this.sendCommand(SetLanguageModeCommand, {
-      command_type: "set-language-mode",
-      primary: args.primary ?? "english",
-      secondary: args.secondary ?? [],
-    });
-  }
-
   /**
-   * @description provide identifiers the agent will use to identify the virtual agent
+   * Send a message to a connected WebRTC client.
+   *
+   * @param payload - A JSON-serializable object delivered to the client.
+   * @throws If this is not a WebRTC call, or `payload` is not JSON-serializable.
    */
-  async setPersona(args: {
-    organizationName?: string;
-    agentName?: string;
-    agentPurpose?: string;
-    voice?: string;
-    speechSpeed?: SpeedPreset;
-    pronunciations?: Record<string, string>;
-  }) {
-    await this.sendCommand(SetPersona, {
-      command_type: "set-persona",
-      organization_name: args.organizationName,
-      agent_name: args.agentName,
-      agent_purpose: args.agentPurpose,
-      voice: args.voice,
-      tts_speed: args.speechSpeed,
-      tts_replacements: args.pronunciations,
+  async sendWebrtcMessage(payload: Record<string, unknown>) {
+    if (this._callInfo.call_type !== "webrtc") {
+      throw new Error("Only WebRTC calls support sending WebRTC messages.");
+    }
+    if (!z.record(z.string(), z.json()).safeParse(payload).success) {
+      throw new Error("WebRTC message payload must be JSON-serializable.");
+    }
+    await this.sendCommand(SendWebRTCMessageCommand, {
+      command_type: "send-webrtc-message",
+      payload: payload as Record<string, z.core.util.JSONType>,
     });
   }
 
@@ -241,85 +403,6 @@ export class Call {
       action_items,
       completion_criteria: completionCriteria,
     });
-  }
-
-  /**
-   * Transfer the call to another destination.
-   *
-   * This method does not interfere with turn-taking — use this when
-   * you want the agent to naturally transfer the call.
-   *
-   * @param destination - The phone number, SIP address, or SipUri to transfer the call to.
-   * @param instructions - Optional guidance for how the agent should handle the transfer.
-   */
-  async transfer(destination: string | SipUri, instructions?: string) {
-    await this.sendCommand(TransferCommand, {
-      command_type: "transfer-call",
-      to_number: destination.toString(),
-      transfer_message:
-        instructions ?? "Notify the caller that you will be transferring them, and then transfer.",
-      soft_transfer: true,
-    });
-  }
-
-  /**
-   * Transfer the call immediately.
-   *
-   * Unlike transfer(), this does not respect turn-taking. The agent immediately
-   * initiates the transfer, saying the script (if provided).
-   *
-   * @param destination - The phone number, SIP address, or SipUri to transfer the call to.
-   * @param finalScript - Optional message for the agent to deliver immediately
-   *   before transferring. Defaults to no message.
-   */
-  async immediateTransfer(destination: string | SipUri, finalScript?: string) {
-    await this.sendCommand(TransferCommand, {
-      command_type: "transfer-call",
-      to_number: destination.toString(),
-      transfer_message: finalScript ?? "",
-      soft_transfer: false,
-    });
-  }
-
-  async addInfo(label: string, info: unknown) {
-    await this.sendInstruction(
-      `Here is some information about the following topic ${label}:\n${JSON.stringify(info, null, 2)}`,
-    );
-  }
-
-  async retryTask(reason: string) {
-    await this.sendCommand(RetryTaskCommand, {
-      command_type: "retry-task",
-      reason,
-    });
-  }
-
-  async readScript(script: string | Partial<Record<Language, string>>) {
-    await this.sendCommand(ReadScriptCommand, {
-      command_type: "read-script",
-      script,
-    });
-  }
-
-  async sendInstruction(instruction: string) {
-    await this.sendCommand(SendInstructionCommand, {
-      command_type: "send-instruction",
-      instruction: instruction,
-    });
-  }
-
-  /**
-   * @description hang up an accepted call
-   */
-  async hangup(final_instructions: string = "") {
-    let instructions: string;
-    if (final_instructions) {
-      instructions = `Start ending the conversation. Here are your final instructions: ${final_instructions} Once you've completed the final instructions, naturally end the conversation and hang up the call.`;
-    } else {
-      instructions = "Naturally end the conversation and hang up the call.";
-    }
-
-    await this.sendInstruction(instructions);
   }
 
   async reachPerson(
@@ -431,8 +514,21 @@ TASK COMPLETION REQUIREMENTS:
     }
   }
 
+  /**
+   * Set a variable on the call, both locally and on the server.
+   *
+   * @throws If `variableValue` is not JSON-serializable.
+   */
   async setVariable(variableName: string, variableValue: any) {
+    if (!z.json().safeParse(variableValue).success) {
+      throw new Error(`Variable value for key '${variableName}' must be JSON-serializable.`);
+    }
     this._variables[variableName] = variableValue;
+    await this.sendCommand(SetVariableCommand, {
+      command_type: "set-variable",
+      key: variableName,
+      value: variableValue,
+    });
   }
 
   async getVariable(variableName: string) {

@@ -18,6 +18,7 @@ import {
   type EscalateEvent,
   type GuavaEvent,
   type OutboundCallFailed,
+  type WebRTCMessageEvent,
   decodeEventDict,
 } from "./events.ts";
 import {
@@ -25,7 +26,7 @@ import {
   type ServerMessage as DialerServerMessage,
   decodeServerMessage as decodeDialerServerMessage,
 } from "./guavadialer-events.ts";
-import { HealthContext, getHealthServer } from "./health.ts";
+import { HealthContext } from "./health.ts";
 import { _generate } from "./helpers/llm.ts";
 import { Call, Client } from "./index.ts";
 import { type Logger, getDefaultLogger } from "./logging.ts";
@@ -33,6 +34,7 @@ import type { CallInfo } from "./socket/call-info.ts";
 import { GuavaSocket, GuavaSocketClosedError } from "./socket/client.ts";
 import * as ListenInbound from "./socket/listen-inbound.ts";
 import { telemetryClient } from "./telemetry.ts";
+import { Runner } from "./runner.ts";
 import { runChat } from "./testing/chat.ts";
 import { SessionStarted } from "./testing/protocol.ts";
 import { TestSession } from "./testing/session.ts";
@@ -99,6 +101,7 @@ export class Agent {
   private _onEscalate?: (call: Call, event: EscalateEvent) => Promise<void>;
   private _onCallerDtmf?: (call: Call, event: DTMFPressedEvent) => Promise<void>;
   private _onAgentDtmf?: (call: Call, event: AgentDTMFSentEvent) => Promise<void>;
+  private _onWebrtcMessage?: (call: Call, event: WebRTCMessageEvent) => Promise<void>;
   private _onOutboundFailed?: (call: Call, event: OutboundCallFailed) => Promise<void>;
 
   constructor(args?: {
@@ -217,6 +220,11 @@ export class Agent {
     this._onAgentDtmf = callback;
   }
 
+  /** Register a handler for messages sent by a connected WebRTC client. */
+  onWebrtcMessage(callback: (call: Call, event: WebRTCMessageEvent) => Promise<void>): void {
+    this._onWebrtcMessage = callback;
+  }
+
   onOutboundFailed(callback: (call: Call, event: OutboundCallFailed) => Promise<void>): void {
     this._onOutboundFailed = callback;
   }
@@ -275,25 +283,15 @@ export class Agent {
   }
 
   async listenPhone(phoneNumber: string): Promise<void> {
-    const healthCtx = new HealthContext();
-    await using _server = await getHealthServer(healthCtx);
-    return await this._listenInbound(healthCtx, { agent_number: phoneNumber });
+    await new Runner().listenPhone(this, phoneNumber).run();
   }
 
   async listenWebrtc(webrtcCode?: string): Promise<void> {
-    if (!webrtcCode) {
-      this._logger.info("No WebRTC code provided. Creating a temporary one.");
-      webrtcCode = await this._client.createWebrtcAgent(3600);
-    }
-    const healthCtx = new HealthContext();
-    await using _server = await getHealthServer(healthCtx);
-    return await this._listenInbound(healthCtx, { webrtc_code: webrtcCode });
+    await new Runner().listenWebrtc(this, webrtcCode).run();
   }
 
   async listenSip(sipCode: string): Promise<void> {
-    const healthCtx = new HealthContext();
-    await using _server = await getHealthServer(healthCtx);
-    return await this._listenInbound(healthCtx, { sip_code: sipCode });
+    await new Runner().listenSip(this, sipCode).run();
   }
 
   async callLocal(variables: Record<string, any> = {}): Promise<void> {
@@ -511,6 +509,12 @@ export class Agent {
           this._onAgentDtmf!(call, event),
         );
       }
+    } else if (event.event_type === "webrtc-message") {
+      if (this._onWebrtcMessage !== undefined) {
+        await this._invokeHandler(call, "onWebrtcMessage", false, () =>
+          this._onWebrtcMessage!(call, event),
+        );
+      }
     } else if (event.event_type === "escalate") {
       if (this._onEscalate !== undefined) {
         await this._invokeHandler(call, "onEscalate", true, () => this._onEscalate!(call, event));
@@ -542,7 +546,7 @@ export class Agent {
     callInfo: CallInfo,
     variables: Record<string, any> = {},
   ): Promise<Call> {
-    const call = new Call(callId, callInfo, variables);
+    const call = new Call(callId, callInfo);
     await call.setPersona({
       agentName: this._name,
       agentPurpose: this._purpose,
@@ -560,6 +564,9 @@ export class Agent {
       accept_dtmf_for_numbers: this._acceptDtmfForNumbers,
       has_on_agent_dtmf: this._onAgentDtmf !== undefined,
     });
+    for (const [key, value] of Object.entries(variables)) {
+      await call.setVariable(key, value);
+    }
     if (this._onCallStart !== undefined) {
       await this._onCallStart(call);
     }
@@ -568,13 +575,10 @@ export class Agent {
 
   async _attachToCall(
     callId: string,
-    callInfo: CallInfo,
-    initialVariables: Record<string, any> = {},
+    call: Call,
     testSession?: TestSession,
     route: string = "v2/connect-call",
   ): Promise<void> {
-    const call = await this._initCall(callId, callInfo, initialVariables);
-
     const url = new URL(`${route}/${callId}`, this._client.getWebsocketBase());
     await using socket = await new GuavaSocket<Command, GuavaEvent | null>(
       `call-connection-${callId}`,
@@ -712,8 +716,19 @@ export class Agent {
       socket.send({ message_type: "decline-call", call_id: callId });
     } else {
       this._logger.info("Accepting call %s.", callId);
+
+      // Initialize the call, invoking onCallStart.
+      let call: Call;
+      try {
+        call = await this._initCall(callId, callInfo, initialVariables);
+      } catch (err) {
+        this._logger.error("Failed to initialize inbound call %s. Declining: %s", callId, err);
+        socket.send({ message_type: "decline-call", call_id: callId });
+        return;
+      }
+
       socket.send({ message_type: "answer-call", call_id: callId });
-      await this._attachToCall(callId, callInfo, initialVariables);
+      await this._attachToCall(callId, call);
     }
   }
 
@@ -725,24 +740,51 @@ export class Agent {
     toNumber: string,
     variables: Record<string, any> = {},
   ): Promise<void> {
-    const url = new URL("v2/create-outbound", this._client.getHttpBase());
-    url.searchParams.set("from_number", fromNumber);
-    url.searchParams.set("to_number", toNumber);
+    for (const [key, value] of Object.entries(variables)) {
+      if (!z.json().safeParse(value).success) {
+        throw new Error(`Variable '${key}' value is not JSON serializable: ${String(value)}`);
+      }
+    }
 
-    const response = await fetchOrThrow(url, {
+    const reserveUrl = new URL("v3/reserve-outbound", this._client.getHttpBase());
+    reserveUrl.searchParams.set("from_number", fromNumber);
+    reserveUrl.searchParams.set("to_number", toNumber);
+
+    const response = await fetchOrThrow(reserveUrl, {
       method: "POST",
       headers: await this._client.headers(),
     });
     const { call_id } = (await response.json()) as { call_id: string };
 
-    this._logger.info("Outbound call created with session ID: %s", call_id);
     const callInfo: CallInfo = {
       call_type: "pstn",
       from_number: fromNumber ?? null,
       to_number: toNumber,
       caller_id: null,
     };
-    await this._attachToCall(call_id, callInfo, variables);
+
+    // Initialize the call before dialing, invoking onCallStart.
+    let call: Call;
+    try {
+      call = await this._initCall(call_id, callInfo, variables);
+    } catch (err) {
+      this._logger.error(
+        "Failed to initialize outbound call %s. The call will not be dialed: %s",
+        call_id,
+        err,
+      );
+      throw err;
+    }
+
+    const createUrl = new URL("v3/create-outbound", this._client.getHttpBase());
+    createUrl.searchParams.set("call_id", call_id);
+    await fetchOrThrow(createUrl, {
+      method: "POST",
+      headers: await this._client.headers(),
+    });
+
+    this._logger.info("Outbound call created with session ID: %s", call_id);
+    await this._attachToCall(call_id, call);
   }
 
   /**
@@ -788,14 +830,20 @@ export class Agent {
       to_number: "+15555555555",
       caller_id: null,
     };
-    const attachPromise = this._attachToCall(
-      sessionStarted.session_id,
-      testCallInfo,
-      variables,
-      testSession,
-    ).catch((err: unknown) => {
-      this._logger.error("Error in _attachToCall during test: %s", err);
-    });
+    // Initialize the call, invoking onCallStart.
+    let call: Call;
+    try {
+      call = await this._initCall(sessionStarted.session_id, testCallInfo, variables);
+    } catch (err) {
+      ws.close();
+      throw err;
+    }
+
+    const attachPromise = this._attachToCall(sessionStarted.session_id, call, testSession).catch(
+      (err: unknown) => {
+        this._logger.error("Error in _attachToCall during test: %s", err);
+      },
+    );
 
     try {
       await callback(testSession);
@@ -917,6 +965,7 @@ Choose "speak" and provide your next utterance, or choose "hangup" if the conver
    * affecting the original agent.
    */
   patch(): Agent {
+    // Keep this up to date with the Agent constructor args.
     const cloned = new Agent({
       name: this._name,
       organization: this._organization,
@@ -926,6 +975,8 @@ Choose "speak" and provide your next utterance, or choose "hangup" if the conver
       acceptDtmf: this._acceptDtmfForNumbers,
       speechSpeed: this._speechSpeed,
     });
+
+    // Keep this up to date with the handlers on Agent.
     cloned._onCallReceived = this._onCallReceived;
     cloned._onCallStart = this._onCallStart;
     cloned._onCallerSpeech = this._onCallerSpeech;
@@ -942,6 +993,7 @@ Choose "speak" and provide your next utterance, or choose "hangup" if the conver
     cloned._onEscalate = this._onEscalate;
     cloned._onCallerDtmf = this._onCallerDtmf;
     cloned._onAgentDtmf = this._onAgentDtmf;
+    cloned._onWebrtcMessage = this._onWebrtcMessage;
     cloned._onOutboundFailed = this._onOutboundFailed;
     return cloned;
   }
@@ -990,7 +1042,6 @@ Choose "speak" and provide your next utterance, or choose "hangup" if the conver
               // TODO: Possible memory leak.
               activeCalls.push(
                 (async () => {
-                  socket.send({ message_type: "controller-ready", call_id });
                   const variables = (data?.data as Record<string, unknown>) ?? {};
                   const campaignCallInfo: CallInfo = {
                     call_type: "pstn",
@@ -998,13 +1049,24 @@ Choose "speak" and provide your next utterance, or choose "hangup" if the conver
                     to_number: (data?.phone_number as string) ?? "",
                     caller_id: null,
                   };
-                  await this._attachToCall(
-                    call_id,
-                    campaignCallInfo,
-                    variables,
-                    undefined,
-                    "v2/connect-campaign-call",
-                  );
+
+                  // Initialize the call, invoking onCallStart.
+                  let call: Call;
+                  try {
+                    call = await this._initCall(call_id, campaignCallInfo, variables);
+                  } catch (err) {
+                    this._logger.error(
+                      "Failed to initialize campaign call %s. The call will not be dialed: %s",
+                      call_id,
+                      err,
+                    );
+                    socket.send({ message_type: "init-controller-failed", call_id });
+                    return;
+                  }
+
+                  // Signal that we're ready for this call to go out, and attach to the endpoint.
+                  socket.send({ message_type: "controller-ready", call_id });
+                  await this._attachToCall(call_id, call, undefined, "v2/connect-campaign-call");
                 })().catch((err) => {
                   this._logger.error("Error handling campaign call %s: %s", call_id, err);
                 }),
@@ -1036,9 +1098,7 @@ Choose "speak" and provide your next utterance, or choose "hangup" if the conver
    * await agent.attachCampaign("gcmp-abc123");
    */
   async attachCampaign(campaignCode: string): Promise<void> {
-    const healthCtx = new HealthContext();
-    await using _server = await getHealthServer(healthCtx);
-    return await this._serveCampaign(healthCtx, campaignCode);
+    await new Runner().attachCampaign(this, campaignCode).run();
   }
 
   /* ===== Aliases to be removed at some point. ===== */

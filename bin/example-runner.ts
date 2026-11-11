@@ -142,6 +142,10 @@ const EXAMPLES: Record<string, ExampleEntry> = {
     description: "Inbound agent that speaks at a slower speed preset",
     load: () => import("../examples/slow-speech"),
   },
+  "warm-transfer": {
+    description: "Inbound agent that briefs a rep on a second call, then joins the two",
+    load: () => import("../examples/warm-transfer"),
+  },
   "agent-testing": {
     description: "Run agent unit tests and conversation simulations",
     load: async () => ({ run: runAgentTesting }),

@@ -64,11 +64,58 @@ export async function fetchOrThrow(
   return res;
 }
 
+/**
+ * Whether `e` is a fetch network failure. Bad input (e.g. an invalid URL) is
+ * also a TypeError, but with a different message. Avoids `instanceof`, since
+ * fetch errors can come from another realm (e.g. under Jest).
+ */
+function isNetworkError(e: unknown): boolean {
+  const { name, message } = (e ?? {}) as { name?: unknown; message?: unknown };
+  return name === "TypeError" && message === "fetch failed";
+}
+
+const RETRYABLE_STATUS_CODES = new Set([408, 409, 429, 500, 502, 503, 504]);
+const RETRY_DELAYS_MS = [0, 500, 1000, 2000, 5000];
+
+/**
+ * POST that retries network errors and retryable statuses, throwing on a final
+ * error status. A single Idempotency-Key is sent with every attempt so the
+ * server can drop duplicates.
+ *
+ * @param retries - Number of retries after the first attempt.
+ */
+export async function idempotentPost(
+  input: string | URL,
+  init: Omit<RequestInit, "method"> = {},
+  retries = 3,
+): Promise<Response> {
+  const headers = new Headers(init.headers);
+  if (!headers.has("Idempotency-Key")) headers.set("Idempotency-Key", crypto.randomUUID());
+
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await fetchOrThrow(input, { ...init, method: "POST", headers });
+    } catch (e) {
+      const retryable =
+        isNetworkError(e) || (e instanceof HttpStatusError && RETRYABLE_STATUS_CODES.has(e.status));
+      if (attempt === retries || !retryable) throw e;
+    }
+    await sleep(RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)]!);
+  }
+}
+
 /** A Disposable whose disposal does nothing. Useful as a conditional no-op. */
 export const nullDisposable: Disposable = { [Symbol.dispose]() {} };
 
+/**
+ * Run `listener` when `signal` aborts, or immediately if it already has.
+ * Dispose to unregister.
+ */
 export function onAbort(signal: AbortSignal, listener: () => void): Disposable {
-  signal.throwIfAborted();
+  if (signal.aborted) {
+    listener();
+    return nullDisposable;
+  }
   signal.addEventListener("abort", listener, { once: true });
 
   return {

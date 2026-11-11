@@ -14,7 +14,7 @@ export { Logger, getConsoleLogger, getDefaultLogger } from "./logging.ts";
 export { Agent, CallInfo } from "./agent.ts";
 export { SIPCallInfo } from "./socket/call-info.ts";
 export { SipUri } from "./sip.ts";
-export { Call, DEFAULT_REACH_PERSON_OUTCOMES } from "./call.ts";
+export { BaseCall, Call, RemoteCall, DEFAULT_REACH_PERSON_OUTCOMES } from "./call.ts";
 export type { ReachPersonOutcome } from "./call.ts";
 export type { SpeedPreset, Language } from "./commands.ts";
 export type {
@@ -24,6 +24,7 @@ export type {
   AgentDTMFSentEvent,
   DTMFDigit,
   OutboundCallFailed,
+  WebRTCMessageEvent,
 } from "./events.ts";
 export { TestSession } from "./testing/session.ts";
 export { MockCall } from "./testing/mocks.ts";
